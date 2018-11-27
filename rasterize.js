@@ -1,9 +1,12 @@
 /* GLOBAL CONSTANTS AND VARIABLES */
 
 /* assignment specific globals */
+const TESTING = false;
 const BASE_URL = "https://ncsucgclass.github.io/prog4/"; // prog4 shell base url
 const INPUT_TRIANGLES_URL = BASE_URL + "triangles.json"; // triangles file loc
+const INPUT_ELLIPSOIDS_URL = BASE_URL + "ellipsoids.json"; // triangles file loc
 const EPSILON = 0.000001 // error value for floating point numbers
+const TRANS_OPAQUE_BORDER = 1.0 - EPSILON; // the alpha border between transparent and opaque objects
 var defaultEye = vec3.fromValues(0.5, 0.5, -0.5); // default eye position in world space
 var defaultCenter = vec3.fromValues(0.5, 0.5, 0.5); // default view direction in world space
 var defaultUp = vec3.fromValues(0, 1, 0); // default view up vector
@@ -19,10 +22,10 @@ var Modulation = 0; // modulation toggle
 var gl = null; // the all powerful gl object. It's all here folks!
 var inputTriangles = []; // the triangle data as loaded from input files
 var numTriangleSets = 0; // how many triangle sets in input scene
-var inputEllipsoids = []; // the ellipsoid data as loaded from input files
-var numEllipsoids = 0; // how many ellipsoids in the input scene
 var strucTriangles = []; // the structured triangle data for transparent triangles
 var numTriangles = 0; // how many transparent triangles in input scene
+// var inputEllipsoids = []; // the ellipsoid data as loaded from input files
+var numEllipsoids = 0; // how many ellipsoids in the input scene
 // var vertexBuffers = []; // this contains vertex coordinate lists by set, in triples
 // var normalBuffers = []; // this contains normal component lists by set, in triples
 // var textureBuffers = []; // this contains texture coordinate lists by set, in triples
@@ -276,7 +279,8 @@ function handleKeyDown(event) {
             break;
     } // end switch
 
-    window.requestAnimationFrame(renderModels); // set up frame render callback
+    if (TESTING)
+        window.requestAnimationFrame(renderModels); // set up frame render callback
 } // end handleKeyDown
 
 // set up the webGL environment
@@ -321,6 +325,7 @@ function setupWebGL() {
 // read models in, load them into webgl buffers
 function loadModels() {
     inputTriangles = getJSONFile(INPUT_TRIANGLES_URL, "triangles"); // read in the triangle data
+    var inputEllipsoids = loadEllipsoids(); // load ellipsoids
 
     try {
         if (inputTriangles == String.null)
@@ -337,8 +342,9 @@ function loadModels() {
             // process each triangle set to load webgl vertex and triangle buffers
             numTriangleSets = inputTriangles.length; // remember how many tri sets
             for (var whichSet = 0; whichSet < numTriangleSets; whichSet++) { // for each tri set
+                inputTriangles[whichSet].ellipsoid = false; // is ellipsoid?
 
-                // Load texture
+                // load texture
                 var texture = inputTriangles[whichSet].material.texture;
                 inputTriangles[whichSet].texture = loadTexture(BASE_URL + texture);
 
@@ -367,19 +373,6 @@ function loadModels() {
                 } // end for vertices in set
                 vec3.scale(inputTriangles[whichSet].center, inputTriangles[whichSet].center, 1 / numVerts); // avg ctr sum
 
-                // send the vertex coords and normals to webGL
-                inputTriangles[whichSet].vtxBuffer = gl.createBuffer(); // init empty webgl set vertex coord buffer
-                gl.bindBuffer(gl.ARRAY_BUFFER, inputTriangles[whichSet].vtxBuffer); // activate that buffer
-                gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(inputTriangles[whichSet].glVertices), gl.STATIC_DRAW); // data in
-                inputTriangles[whichSet].normBuffer = gl.createBuffer(); // init empty webgl set normal component buffer
-                gl.bindBuffer(gl.ARRAY_BUFFER, inputTriangles[whichSet].normBuffer); // activate that buffer
-                gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(inputTriangles[whichSet].glNormals), gl.STATIC_DRAW); // data in
-
-                // send the texture coords to webGL
-                inputTriangles[whichSet].texBuffer = gl.createBuffer(); // init empty webgl set texture coord buffer
-                gl.bindBuffer(gl.ARRAY_BUFFER, inputTriangles[whichSet].texBuffer); // activate that buffer
-                gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(inputTriangles[whichSet].texCoords), gl.STATIC_DRAW); // data in
-
                 // set up the triangle index array, adjusting indices across sets
                 inputTriangles[whichSet].glTriangles = []; // flat index list for webgl
                 inputTriangles[whichSet].tris = inputTriangles[whichSet].triangles.length; // number of tris in this set
@@ -388,41 +381,63 @@ function loadModels() {
                     inputTriangles[whichSet].glTriangles.push(triToAdd[0], triToAdd[1], triToAdd[2]); // put indices in set list
                 } // end for triangles in set
 
-                // send the triangle indices to webGL
-                inputTriangles[whichSet].triBuffer = gl.createBuffer(); // init empty triangle index buffer
-                gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, inputTriangles[whichSet].triBuffer); // activate that buffer
-                gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(inputTriangles[whichSet].glTriangles), gl.STATIC_DRAW); // data in
-
-                // keep track of triangles for transparent objects
-                var alpha = inputTriangles[whichSet].material.alpha;
-                if (alpha < 1.0 - EPSILON) { // z-buffering off
-                    numTriangles += inputTriangles[whichSet].tris;
-                    for (whichSetTri = 0; whichSetTri < inputTriangles[whichSet].tris; whichSetTri++) {
-                        var tri = {}; // the triangle
-                        tri.set = inputTriangles[whichSet]; // the triangle set
-                        tri.offset = whichSetTri; // the tri location in the tri set
-                        tri.zcenter = 0;  // z center of triangle
-                        tri.translation = inputTriangles[whichSet].translation; // the tri set translation
-
-                        triToAdd = inputTriangles[whichSet].triangles[whichSetTri]; // get tri to add
-                        for (var whichTriVert = 0; whichTriVert < 3; whichTriVert++) {
-                            vtxToAdd = inputTriangles[whichSet].vertices[triToAdd[whichTriVert]]; // get vertex to add
-                            tri.zcenter += vtxToAdd[2]; // add to ctr sum
-                        }
-                        tri.zcenter /= 3 // avg ctr sum
-                        strucTriangles.push(tri);
-                    } // end for triangles in set
-                }
-
             } // end for each triangle set
             var temp = vec3.create();
             viewDelta = vec3.length(vec3.subtract(temp, maxCorner, minCorner)) / 100; // set global
         } // end if triangle file loaded
 
+        // add ellipsoids to input tri sets
+        if (typeof inputEllipsoids !== 'undefined')
+            inputTriangles = inputTriangles.concat(inputEllipsoids);
+
         // sort triangle sets (models) by transparency
         inputTriangles.sort(function (a, b) {
             return b.material.alpha - a.material.alpha;
         });
+
+        // process triangles for transparent objects
+        numTriangleSets = inputTriangles.length; // remember how many tri sets + ellipsoids
+        for (var whichSet = 0; whichSet < numTriangleSets; whichSet++) { // for each tri set
+            // send the vertex coords and normals to webGL
+            inputTriangles[whichSet].vtxBuffer = gl.createBuffer(); // init empty webgl set vertex coord buffer
+            gl.bindBuffer(gl.ARRAY_BUFFER, inputTriangles[whichSet].vtxBuffer); // activate that buffer
+            gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(inputTriangles[whichSet].glVertices), gl.STATIC_DRAW); // data in
+            inputTriangles[whichSet].normBuffer = gl.createBuffer(); // init empty webgl set normal component buffer
+            gl.bindBuffer(gl.ARRAY_BUFFER, inputTriangles[whichSet].normBuffer); // activate that buffer
+            gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(inputTriangles[whichSet].glNormals), gl.STATIC_DRAW); // data in
+
+            // send the texture coords to webGL
+            inputTriangles[whichSet].texBuffer = gl.createBuffer(); // init empty webgl set texture coord buffer
+            gl.bindBuffer(gl.ARRAY_BUFFER, inputTriangles[whichSet].texBuffer); // activate that buffer
+            gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(inputTriangles[whichSet].texCoords), gl.STATIC_DRAW); // data in
+
+            // send the triangle indices to webGL
+            inputTriangles[whichSet].triBuffer = gl.createBuffer(); // init empty triangle index buffer
+            gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, inputTriangles[whichSet].triBuffer); // activate that buffer
+            gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(inputTriangles[whichSet].glTriangles), gl.STATIC_DRAW); // data in
+
+            var alpha = inputTriangles[whichSet].material.alpha;
+            if (alpha > TRANS_OPAQUE_BORDER) // skip if handled by z-buffer
+                continue;
+
+            numTriangles += inputTriangles[whichSet].tris;
+            for (var whichSetTri = 0; whichSetTri < inputTriangles[whichSet].tris; whichSetTri++) {
+                var tri = {}; // the triangle
+                tri.set = inputTriangles[whichSet]; // the triangle set
+                tri.offset = whichSetTri; // the tri location in the tri set
+                tri.center = vec3.create();  // center of triangle
+                tri.translation = inputTriangles[whichSet].translation; // the tri set translation
+
+                var triIndices = inputTriangles[whichSet].glTriangles.slice(whichSetTri * 3, (whichSetTri * 3) + 3); // get tri indices
+                var vtxToAdd; // vertex coords
+                for (var whichTriVert = 0; whichTriVert < 3; whichTriVert++) {
+                    vtxToAdd = inputTriangles[whichSet].glVertices.slice(triIndices[whichTriVert] * 3, (triIndices[whichTriVert] * 3) + 3); // get vertex depth to add
+                    vec3.add(tri.center, tri.center, vtxToAdd); // add to ctr sum
+                }
+                vec3.scale(tri.center, tri.center, 1 / 3); // avg ctr sum
+                strucTriangles.push(tri);
+            } // end for triangles in set
+        } // end for tri sets
 
     } // end try
 
@@ -430,6 +445,101 @@ function loadModels() {
         console.log(e);
     } // end catch
 } // end load models
+
+// read ellipsoids in (as triangles), load them into webgl buffers
+function loadEllipsoids() {
+    var inputEllipsoids = getJSONFile(INPUT_ELLIPSOIDS_URL, "ellipsoids"); // read in the ellipsoid data
+
+    if (inputEllipsoids != String.null) {
+        // process each ellipsoid to load webgl vertex and triangle buffers
+        numEllipsoids = inputEllipsoids.length; // remember how many tri sets
+        for (var whichSet = 0; whichSet < numEllipsoids; whichSet++) { // for each ellipsoid tri set
+            // ellipsoid description
+            inputEllipsoids[whichSet].ellipsoid = true; // is ellipsoid?
+            var x = inputEllipsoids[whichSet].x;
+            var y = inputEllipsoids[whichSet].y;
+            var z = inputEllipsoids[whichSet].z;
+            var a = inputEllipsoids[whichSet].a;
+            var b = inputEllipsoids[whichSet].b;
+            var c = inputEllipsoids[whichSet].c;
+
+            // load texture
+            var texture = inputEllipsoids[whichSet].texture;
+            inputEllipsoids[whichSet].texture = loadTexture(BASE_URL + texture);
+
+            // set up hilighting, modeling translation and rotation
+            inputEllipsoids[whichSet].center = vec3.fromValues(x, y, z);  // center point of tri set
+            inputEllipsoids[whichSet].on = false; // not highlighted
+            inputEllipsoids[whichSet].translation = vec3.fromValues(0, 0, 0); // no translation
+            inputEllipsoids[whichSet].xAxis = vec3.fromValues(1, 0, 0); // model X axis
+            inputEllipsoids[whichSet].yAxis = vec3.fromValues(0, 1, 0); // model Y axis
+
+            // map material of the ellipsoid to "material"
+            inputEllipsoids[whichSet].material = {};
+            inputEllipsoids[whichSet].material.ambient = inputEllipsoids[whichSet].ambient;
+            inputEllipsoids[whichSet].material.diffuse = inputEllipsoids[whichSet].diffuse;
+            inputEllipsoids[whichSet].material.specular = inputEllipsoids[whichSet].specular;
+            inputEllipsoids[whichSet].material.n = inputEllipsoids[whichSet].n;
+            inputEllipsoids[whichSet].material.alpha = inputEllipsoids[whichSet].alpha;
+            inputEllipsoids[whichSet].material.texture = texture;
+
+            // set up the vertex and normal arrays, define model center and axes
+            inputEllipsoids[whichSet].glVertices = []; // flat coord list for webgl
+            inputEllipsoids[whichSet].glNormals = []; // flat normal list for webgl
+            inputEllipsoids[whichSet].texCoords = []; // flat texture coord list for webgl
+            inputEllipsoids[whichSet].glTriangles = []; // flat index list for webgl
+
+            // temp information for ellipsoid rows
+            var vertexCount = 0;
+            var prevRowIndex = -1; // the index for the previous row
+            var whichRow = []; // current row
+            var whichRowIndex = 0; // the index for the current row
+            var vertexCount = 0; // the total vertex count
+            var triCount = 0 // the total triangle count
+
+            // set up the vertex coord and normal arrays
+            for (var theta = -Math.PI / 2; theta <= Math.PI / 2 + EPSILON; theta += Math.PI / 24) {
+                var dz = c * Math.sin(theta) + z;
+                for (var phi = -Math.PI; phi <= Math.PI + EPSILON; phi += Math.PI / 12) {
+                    var dx = a * Math.cos(theta) * Math.cos(phi) + x;
+                    var dy = b * Math.cos(theta) * Math.sin(phi) + y;
+                    whichRow.push(dx, dy, dz);
+                    inputEllipsoids[whichSet].glVertices.push(dx, dy, dz); // put coords in set coord list
+                    inputEllipsoids[whichSet].glNormals.push(dx - x, dy - y, dz - z); // put normal in set coord list
+                    inputEllipsoids[whichSet].texCoords.push(0.5 - phi / (2 * Math.PI), theta / (Math.PI) + 0.5); // put tex coords in set coord list
+                    vertexCount++;
+                }
+
+                // set up the triangle array
+                if (prevRowIndex >= 0) {
+                    var rowVertices = 24 + 1; // the number of vertices in a row
+                    var which = whichRowIndex;
+                    for (var prev = prevRowIndex; prev < prevRowIndex + rowVertices; prev++) {
+                        if (prev == prevRowIndex + rowVertices - 1) {
+                            // inputEllipsoids[whichSet].glTriangles.push(prevRowIndex); // coming in full circle
+                            inputEllipsoids[whichSet].glTriangles.push(prev, which, prevRowIndex, which, prevRowIndex, whichRowIndex);
+                        } else {
+                            // inputEllipsoids[whichSet].glTriangles.push(prev, which++); // put triangle indices in set list
+                            inputEllipsoids[whichSet].glTriangles.push(prev, which, prev + 1, which, prev + 1, which + 1);
+                        }
+
+                        which++;
+                        triCount += 2;
+                    }
+                }
+
+                // update ellipsoid row information
+                prevRowIndex = whichRowIndex;
+                whichRow = [];
+                whichRowIndex = vertexCount;
+            } // end for each ellipsoid row
+
+            inputEllipsoids[whichSet].tris = triCount; // number of triangles in this set
+        } // end for each ellipsoid
+    } // end if ellipsoids found
+
+    return inputEllipsoids;
+} // end load ellipsoids
 
 // Initialize a texture and load an image.
 // When the image finished loading copy it into the texture.
@@ -481,7 +591,8 @@ function loadTexture(url) {
             gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
         }
 
-        window.requestAnimationFrame(renderModels); // set up frame render callback
+        if (TESTING)
+            window.requestAnimationFrame(renderModels); // set up frame render callback
     };
 
     return texture;
@@ -689,8 +800,8 @@ function renderModels() {
     var pvMatrix = mat4.create(); // hand * proj * view matrices
     var pvmMatrix = mat4.create(); // hand * proj * view * model matrices
 
-    // moved to on-demand basis only
-    // window.requestAnimationFrame(renderModels); // set up frame render callback
+    if (!TESTING)
+        window.requestAnimationFrame(renderModels); // set up frame render callback
 
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT); // clear frame/depth buffers
 
@@ -708,7 +819,7 @@ function renderModels() {
     for (var whichTriSet = 0; whichTriSet < numTriangleSets; whichTriSet++) {
         currSet = inputTriangles[whichTriSet];
 
-        if (currSet.material.alpha < 1.0 - EPSILON) {
+        if (currSet.material.alpha < TRANS_OPAQUE_BORDER) {
             gl.depthMask(false); // turn off z-buffering
             break;
         }
@@ -743,19 +854,18 @@ function renderModels() {
         // triangle buffer: activate and render
         gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, currSet.triBuffer); // activate
         gl.drawElements(gl.TRIANGLES, 3 * currSet.tris, gl.UNSIGNED_SHORT, 0); // render
-
     } // end for each triangle set
 
     // depth sorting
     strucTriangles.forEach(e => {
-        e.depth = (e.zcenter + e.translation[2]) - Eye[2]; // the distance from the eye
+        e.depth = vec3.distance(Eye, vec3.add(vec3.create(), e.center, e.translation)); // the distance from the eye
     });
 
     strucTriangles.sort(function (a, b) {
         return b.depth - a.depth;
     });
 
-    // render for each triangle
+    // render for each transparent triangle
     for (var whichTri = 0; whichTri < numTriangles; whichTri++) {
         currSet = strucTriangles[whichTri].set;
         currTri = strucTriangles[whichTri];
@@ -793,7 +903,6 @@ function renderModels() {
 
     } // end for each triangle
 } // end render model
-
 
 /* MAIN -- HERE is where execution begins after window load */
 

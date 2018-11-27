@@ -4,19 +4,27 @@
 ### Program 4 - Texturing
 ### Author - Gitesh Agarwal (gagarwa)
 
+## Notes & Assumptions
+
+### Part 1: Texturing
+The texture to image mapping is upside down and/or backwards, which I corrected by flipping the image.
+
+### Part 2: Light & Texture Blending
+I performed three texture and lighting modulations:
+1. Texture Only
+2. Texture & Lighting (for color only)
+3. Texture & Lighting (for color and alpha)
+
+### Part 3: Transparency
+I use 1.0 as the alpha border between transparent vs. opaque objects.  So, all translucent objects are considered transparent.
+
+### Part 4: Depth Sorting
+I do not support changes in triangle depth due to rotation, only translation.
+
 ## Extra Credit
 
-### Arbitrarily Sized Viewports (1%)
-My program supports arbitrarily sized viewports, which can be changed through the UI.  This includes square or rectangular viewports of any size.
+### Render Ellipsoids (1%)
+My program renders ellipsoids (enabled by default).  The texture mapping for ellipsoids may not appear smooth due to selecting a low resolution parameterization for my algorithm (for the sake of efficiency).  The texture mapping is also slightly different than the TA's version due to my implementation.
 
-### Off-Axis & Rectangular Projections (1%)
-My program supports off-axis and rectangular projections.  The projection window can be changed through the UI.  This includes backward projections, so projections from low to high and high to low values are supported in left/right and bottom/top pairs.  Changing the projection window affects the eye and center positions, which are automatically adjusted to match.  Translation with respect to the eye and center positions are performed by the view matrix, not the projection matrix.
-
-### Multiple Lights @ Arbitrary Locations (1%)
-My program supports multiple lights, a maximum of 16 due to WebGL restrictions, at arbitrary locations and with arbitrary colors.
-
-### Smooth Shading w/ Vertex Normals (3%)
-My program supports smooth shading with vertex normals.
-
-### Render Ellipsoids (4%)
-Attempted, but abandoned due to time restrictions.
+### Transparent Textures (1%)
+My program supports transparent textures.
