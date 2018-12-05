@@ -1,7 +1,7 @@
 # NC State University
 ## CSC 461 - Computer Graphics
 
-### Program 4 - Texturing
+### Program 5 - 3D Snake
 ### Author - Gitesh Agarwal (gagarwa)
 
 ## Notes & Assumptions

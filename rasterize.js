@@ -1,57 +1,28 @@
 /* GLOBAL CONSTANTS AND VARIABLES */
 
-/* assignment specific globals */
-const TESTING = false;
-const BASE_URL = "https://ncsucgclass.github.io/prog4/"; // prog4 shell base url
-const INPUT_TRIANGLES_URL = BASE_URL + "triangles.json"; // triangles file loc
-const INPUT_ELLIPSOIDS_URL = BASE_URL + "ellipsoids.json"; // triangles file loc
+/* ASSIGNMENT SPECIFIC GLOBALS */
+const TESTING = true;
+const SNAKE_SKIN_URL = BASE_URL + "https://github.ncsu.edu/prog4/snake.png"; // snake skin image location
+const ITEM_SKIN_URL = BASE_URL + "https://github.ncsu.edu/prog4/item.png"; // item skin image location
 const EPSILON = 0.000001 // error value for floating point numbers
-const TRANS_OPAQUE_BORDER = 1.0 - EPSILON; // the alpha border between transparent and opaque objects
-var defaultEye = vec3.fromValues(0.5, 0.5, -0.5); // default eye position in world space
-var defaultCenter = vec3.fromValues(0.5, 0.5, 0.5); // default view direction in world space
-var defaultUp = vec3.fromValues(0, 1, 0); // default view up vector
-var lightAmbient = vec3.fromValues(1, 1, 1); // default light ambient emission
-var lightDiffuse = vec3.fromValues(1, 1, 1); // default light diffuse emission
-var lightSpecular = vec3.fromValues(1, 1, 1); // default light specular emission
-var lightPosition = vec3.fromValues(-1, 3, -0.5); // default light position
-var rotateTheta = Math.PI / 50; // how much to rotate models by with each key press
-var Blinn_Phong = true;
-var Modulation = 0; // modulation toggle
 
-/* webgl and geometry data */
-var gl = null; // the all powerful gl object. It's all here folks!
-var inputTriangles = []; // the triangle data as loaded from input files
-var numTriangleSets = 0; // how many triangle sets in input scene
-var strucTriangles = []; // the structured triangle data for transparent triangles
-var numTriangles = 0; // how many transparent triangles in input scene
-// var inputEllipsoids = []; // the ellipsoid data as loaded from input files
-var numEllipsoids = 0; // how many ellipsoids in the input scene
-// var vertexBuffers = []; // this contains vertex coordinate lists by set, in triples
-// var normalBuffers = []; // this contains normal component lists by set, in triples
-// var textureBuffers = []; // this contains texture coordinate lists by set, in triples
-// var triSetSizes = []; // this contains the size of each triangle set
-// var triangleBuffers = []; // lists of indices into vertexBuffers by set, in triples
-var viewDelta = 0; // how much to displace view with each key press
+/* CAMERAS */
+const FRONT_CAMERA = {
+    eye: vec3.fromValues(0, 0, -0.5), // eye position in world space
+    center: vec3.fromValues(0.5, 0.5, 0.5), // view direction in world space
+    up: vec3.fromValues(0, 1, 0) // view up vector in world space
+}
 
-/* shader parameter locations */
+/* WEBGL & GEOMETRY DATA */
+var gl = null; // the all powerful gl object - It's all here folks!
+var objects = []; // the objects drawn to scene
+var numObjects = 0; // how many objects in input scene
+
+/* SHADER PARAMETER LOCATIONS */
 var vPosAttribLoc; // where to put position for vertex shader
-var vNormAttribLoc; // where to put normal for vertex shader
 var vTexAttribLoc; // where to put texture coords for vertex shader
-var mMatrixULoc; // where to put model matrix for vertex shader
 var pvmMatrixULoc; // where to put project model view matrix for vertex shader
-var ambientULoc; // where to put ambient reflecivity for fragment shader
-var diffuseULoc; // where to put diffuse reflecivity for fragment shader
-var specularULoc; // where to put specular reflecivity for fragment shader
-var alphaULoc; // where to put alpha value for fragment shader
-var shininessULoc; // where to put specular exponent for fragment shader
-var Blinn_PhongULoc;
-var ModulationULoc; // where to put modulation toggle for fragment shader
 var samplerULoc; // where to put texture for fragment shader
-
-/* interaction variables */
-var Eye = vec3.clone(defaultEye); // eye position in world space
-var Center = vec3.clone(defaultCenter); // view direction in world space
-var Up = vec3.clone(defaultUp); // view up vector in world space
 
 // ASSIGNMENT HELPER FUNCTIONS
 
@@ -82,46 +53,69 @@ function getJSONFile(url, descr) {
     }
 } // end get input json file
 
+// Initialize a texture and load an image.
+// When the image finished loading copy it into the texture.
+// SRC = https://developer.mozilla.org/en-US/docs/Web/API/WebGL_API/Tutorial/Using_textures_in_WebGL
+function loadTexture(url) {
+    const texture = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, texture);
+
+    const isPowerOf2 = function (value) {
+        return (value & (value - 1)) == 0;
+    }
+
+    // Because images have to be download over the internet
+    // they might take a moment until they are ready.
+    // Until then put a single pixel in the texture so we can
+    // use it immediately. When the image has finished downloading
+    // we'll update the texture with the contents of the image.
+    const level = 0;
+    const internalFormat = gl.RGBA;
+    const width = 1;
+    const height = 1;
+    const border = 0;
+    const srcFormat = gl.RGBA;
+    const srcType = gl.UNSIGNED_BYTE;
+    const pixel = new Uint8Array([0, 0, 255, 255]);  // opaque blue
+    gl.texImage2D(gl.TEXTURE_2D, level, internalFormat,
+        width, height, border, srcFormat, srcType,
+        pixel);
+
+    const image = new Image();
+    image.crossOrigin = "Anonymous";
+    image.src = url;
+    image.onload = function () {
+        gl.bindTexture(gl.TEXTURE_2D, texture);
+        gl.texImage2D(gl.TEXTURE_2D, level, internalFormat,
+            srcFormat, srcType, image);
+
+        // WebGL1 has different requirements for power of 2 images
+        // vs non power of 2 images so check if the image is a
+        // power of 2 in both dimensions.
+        if (isPowerOf2(image.width) && isPowerOf2(image.height)) {
+            // Yes, it's a power of 2. Generate mips.
+            gl.generateMipmap(gl.TEXTURE_2D);
+        } else {
+            // No, it's not a power of 2. Turn of mips and set
+            // wrapping to clamp to edge
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+        }
+
+        if (TESTING)
+            window.requestAnimationFrame(renderModels); // set up frame render callback
+    };
+
+    return texture;
+}
+
 // does stuff when keys are pressed
 function handleKeyDown(event) {
-
-    const modelEnum = { TRIANGLES: "triangles", ELLIPSOID: "ellipsoid" }; // enumerated model type
-    const dirEnum = { NEGATIVE: -1, POSITIVE: 1 }; // enumerated rotation direction
-
-    function highlightModel(modelType, whichModel) {
-        if (handleKeyDown.modelOn != null)
-            handleKeyDown.modelOn.on = false;
-        handleKeyDown.whichOn = whichModel;
-        if (modelType == modelEnum.TRIANGLES)
-            handleKeyDown.modelOn = inputTriangles[whichModel];
-        else
-            handleKeyDown.modelOn = inputEllipsoids[whichModel];
-        handleKeyDown.modelOn.on = true;
-    } // end highlight model
-
-    function translateModel(offset) {
-        if (handleKeyDown.modelOn != null)
-            vec3.add(handleKeyDown.modelOn.translation, handleKeyDown.modelOn.translation, offset);
-    } // end translate model
-
-    function rotateModel(axis, direction) {
-        if (handleKeyDown.modelOn != null) {
-            var newRotation = mat4.create();
-
-            mat4.fromRotation(newRotation, direction * rotateTheta, axis); // get a rotation matrix around passed axis
-            vec3.transformMat4(handleKeyDown.modelOn.xAxis, handleKeyDown.modelOn.xAxis, newRotation); // rotate model x axis tip
-            vec3.transformMat4(handleKeyDown.modelOn.yAxis, handleKeyDown.modelOn.yAxis, newRotation); // rotate model y axis tip
-        } // end if there is a highlighted model
-    } // end rotate model
-
     // set up needed view params
     var lookAt = vec3.create(), viewRight = vec3.create(), temp = vec3.create(); // lookat, right & temp vectors
     lookAt = vec3.normalize(lookAt, vec3.subtract(temp, Center, Eye)); // get lookat vector
     viewRight = vec3.normalize(viewRight, vec3.cross(temp, lookAt, Up)); // get view right vector
-
-    // highlight static variables
-    handleKeyDown.whichOn = handleKeyDown.whichOn == undefined ? -1 : handleKeyDown.whichOn; // nothing selected initially
-    handleKeyDown.modelOn = handleKeyDown.modelOn == undefined ? null : handleKeyDown.modelOn; // nothing selected initially
 
     switch (event.code) {
 
@@ -132,151 +126,7 @@ function handleKeyDown(event) {
             handleKeyDown.modelOn = null; // no highlighted model
             handleKeyDown.whichOn = -1; // nothing highlighted
             break;
-        case "ArrowRight": // select next triangle set
-            highlightModel(modelEnum.TRIANGLES, (handleKeyDown.whichOn + 1) % numTriangleSets);
-            break;
-        case "ArrowLeft": // select previous triangle set
-            highlightModel(modelEnum.TRIANGLES, (handleKeyDown.whichOn > 0) ? handleKeyDown.whichOn - 1 : numTriangleSets - 1);
-            break;
 
-
-        // view change
-        case "KeyA": // translate view left, rotate left with shift
-            Center = vec3.add(Center, Center, vec3.scale(temp, viewRight, viewDelta));
-            if (!event.getModifierState("Shift"))
-                Eye = vec3.add(Eye, Eye, vec3.scale(temp, viewRight, viewDelta));
-            break;
-        case "KeyD": // translate view right, rotate right with shift
-            Center = vec3.add(Center, Center, vec3.scale(temp, viewRight, -viewDelta));
-            if (!event.getModifierState("Shift"))
-                Eye = vec3.add(Eye, Eye, vec3.scale(temp, viewRight, -viewDelta));
-            break;
-        case "KeyS": // translate view backward, rotate up with shift
-            if (event.getModifierState("Shift")) {
-                Center = vec3.add(Center, Center, vec3.scale(temp, Up, viewDelta));
-                Up = vec3.cross(Up, viewRight, vec3.subtract(lookAt, Center, Eye)); /* global side effect */
-            } else {
-                Eye = vec3.add(Eye, Eye, vec3.scale(temp, lookAt, -viewDelta));
-                Center = vec3.add(Center, Center, vec3.scale(temp, lookAt, -viewDelta));
-            } // end if shift not pressed
-            break;
-        case "KeyW": // translate view forward, rotate down with shift
-            if (event.getModifierState("Shift")) {
-                Center = vec3.add(Center, Center, vec3.scale(temp, Up, -viewDelta));
-                Up = vec3.cross(Up, viewRight, vec3.subtract(lookAt, Center, Eye)); /* global side effect */
-            } else {
-                Eye = vec3.add(Eye, Eye, vec3.scale(temp, lookAt, viewDelta));
-                Center = vec3.add(Center, Center, vec3.scale(temp, lookAt, viewDelta));
-            } // end if shift not pressed
-            break;
-        case "KeyQ": // translate view up, rotate counterclockwise with shift
-            if (event.getModifierState("Shift"))
-                Up = vec3.normalize(Up, vec3.add(Up, Up, vec3.scale(temp, viewRight, -viewDelta)));
-            else {
-                Eye = vec3.add(Eye, Eye, vec3.scale(temp, Up, viewDelta));
-                Center = vec3.add(Center, Center, vec3.scale(temp, Up, viewDelta));
-            } // end if shift not pressed
-            break;
-        case "KeyE": // translate view down, rotate clockwise with shift
-            if (event.getModifierState("Shift"))
-                Up = vec3.normalize(Up, vec3.add(Up, Up, vec3.scale(temp, viewRight, viewDelta)));
-            else {
-                Eye = vec3.add(Eye, Eye, vec3.scale(temp, Up, -viewDelta));
-                Center = vec3.add(Center, Center, vec3.scale(temp, Up, -viewDelta));
-            } // end if shift not pressed
-            break;
-        case "Escape": // reset view to default
-            Eye = vec3.copy(Eye, defaultEye);
-            Center = vec3.copy(Center, defaultCenter);
-            Up = vec3.copy(Up, defaultUp);
-            break;
-
-        // model transformation
-        case "KeyK": // translate left, rotate left with shift
-            if (event.getModifierState("Shift"))
-                rotateModel(Up, dirEnum.NEGATIVE);
-            else
-                translateModel(vec3.scale(temp, viewRight, viewDelta));
-            break;
-        case "Semicolon": // translate right, rotate right with shift
-            if (event.getModifierState("Shift"))
-                rotateModel(Up, dirEnum.POSITIVE);
-            else
-                translateModel(vec3.scale(temp, viewRight, -viewDelta));
-            break;
-        case "KeyL": // translate backward, rotate up with shift
-            if (event.getModifierState("Shift"))
-                rotateModel(viewRight, dirEnum.POSITIVE);
-            else
-                translateModel(vec3.scale(temp, lookAt, -viewDelta));
-            break;
-        case "KeyO": // translate forward, rotate down with shift
-            if (event.getModifierState("Shift"))
-                rotateModel(viewRight, dirEnum.NEGATIVE);
-            else
-                translateModel(vec3.scale(temp, lookAt, viewDelta));
-            break;
-        case "KeyI": // translate up, rotate counterclockwise with shift 
-            if (event.getModifierState("Shift"))
-                rotateModel(lookAt, dirEnum.POSITIVE);
-            else
-                translateModel(vec3.scale(temp, Up, viewDelta));
-            break;
-        case "KeyP": // translate down, rotate clockwise with shift
-            if (event.getModifierState("Shift"))
-                rotateModel(lookAt, dirEnum.NEGATIVE);
-            else
-                translateModel(vec3.scale(temp, Up, -viewDelta));
-            break;
-        case "KeyB":
-            Modulation = (Modulation == 2) ? 0 : Modulation + 1;
-            break;
-        case "KeyN":
-            handleKeyDown.modelOn.material.n = (handleKeyDown.modelOn.material.n + 1) % 20;
-            console.log(handleKeyDown.modelOn.material.n);
-            break;
-        case "Numpad1":
-            vec3.add(handleKeyDown.modelOn.material.ambient, handleKeyDown.modelOn.material.ambient, vec3.fromValues(0.1, 0.1, 0.1));
-            if (handleKeyDown.modelOn.material.ambient[0] > 1.0)
-                handleKeyDown.modelOn.material.ambient[0] = 0;
-            if (handleKeyDown.modelOn.material.ambient[1] > 1.0)
-                handleKeyDown.modelOn.material.ambient[1] = 0;
-            if (handleKeyDown.modelOn.material.ambient[2] > 1.0)
-                handleKeyDown.modelOn.material.ambient[2] = 0;
-            console.log(handleKeyDown.modelOn.material.ambient);
-            break;
-        case "Numpad2":
-            vec3.add(handleKeyDown.modelOn.material.diffuse, handleKeyDown.modelOn.material.diffuse, vec3.fromValues(0.1, 0.1, 0.1));
-            if (handleKeyDown.modelOn.material.diffuse[0] > 1.0)
-                handleKeyDown.modelOn.material.diffuse[0] = 0;
-            if (handleKeyDown.modelOn.material.diffuse[1] > 1.0)
-                handleKeyDown.modelOn.material.diffuse[1] = 0;
-            if (handleKeyDown.modelOn.material.diffuse[2] > 1.0)
-                handleKeyDown.modelOn.material.diffuse[2] = 0;
-            console.log(handleKeyDown.modelOn.material.diffuse);
-            break;
-        case "Numpad3":
-            vec3.add(handleKeyDown.modelOn.material.specular, handleKeyDown.modelOn.material.specular, vec3.fromValues(0.1, 0.1, 0.1));
-            if (handleKeyDown.modelOn.material.specular[0] > 1.0)
-                handleKeyDown.modelOn.material.specular[0] = 0;
-            if (handleKeyDown.modelOn.material.specular[1] > 1.0)
-                handleKeyDown.modelOn.material.specular[1] = 0;
-            if (handleKeyDown.modelOn.material.specular[2] > 1.0)
-                handleKeyDown.modelOn.material.specular[2] = 0;
-            console.log(handleKeyDown.modelOn.material.specular);
-            break;
-        case "Backspace": // reset model transforms to default
-            for (var whichTriSet = 0; whichTriSet < numTriangleSets; whichTriSet++) {
-                vec3.set(inputTriangles[whichTriSet].translation, 0, 0, 0);
-                vec3.set(inputTriangles[whichTriSet].xAxis, 1, 0, 0);
-                vec3.set(inputTriangles[whichTriSet].yAxis, 0, 1, 0);
-            } // end for all triangle sets
-            for (var whichEllipsoid = 0; whichEllipsoid < numEllipsoids; whichEllipsoid++) {
-                vec3.set(inputEllipsoids[whichEllipsoid].translation, 0, 0, 0);
-                vec3.set(inputEllipsoids[whichTriSet].xAxis, 1, 0, 0);
-                vec3.set(inputEllipsoids[whichTriSet].yAxis, 0, 1, 0);
-            } // end for all ellipsoids
-            break;
     } // end switch
 
     if (TESTING)
@@ -288,17 +138,6 @@ function setupWebGL() {
 
     // Set up keys
     document.onkeydown = handleKeyDown; // call this when key pressed
-    // Get the image canvas, render an image in it
-    var imageCanvas = document.getElementById("myImageCanvas"); // create a 2d canvas
-    var cw = imageCanvas.width, ch = imageCanvas.height;
-    imageContext = imageCanvas.getContext("2d");
-    var bkgdImage = new Image();
-    bkgdImage.crossOrigin = "Anonymous";
-    bkgdImage.src = "https://ncsucgclass.github.io/prog4/sky.jpg";
-    bkgdImage.onload = function () {
-        var iw = bkgdImage.width, ih = bkgdImage.height;
-        imageContext.drawImage(bkgdImage, 0, 0, iw, ih, 0, 0, cw, ch);
-    } // end onload callback
 
     // create a webgl canvas and set it up
     var webGLCanvas = document.getElementById("myWebGLCanvas"); // create a webgl canvas
@@ -322,6 +161,13 @@ function setupWebGL() {
 
 } // end setupWebGL
 
+function init_snake() {
+// var vertexBuffers = []; // this contains vertex coordinate lists by set, in triples
+// var textureBuffers = []; // this contains texture coordinate lists by set, in triples
+// var triSetSizes = []; // this contains the size of each triangle set
+// var triangleBuffers = []; // lists of indices into vertexBuffers by set, in triples
+}
+
 // read models in, load them into webgl buffers
 function loadModels() {
     inputTriangles = getJSONFile(INPUT_TRIANGLES_URL, "triangles"); // read in the triangle data
@@ -336,8 +182,6 @@ function loadModels() {
             var vtxToAdd; // vtx coords to add to the coord array
             var normToAdd; // vtx normal to add to the coord array
             var triToAdd; // tri indices to add to the index array
-            var maxCorner = vec3.fromValues(Number.MIN_VALUE, Number.MIN_VALUE, Number.MIN_VALUE); // bbox corner
-            var minCorner = vec3.fromValues(Number.MAX_VALUE, Number.MAX_VALUE, Number.MAX_VALUE); // other corner
 
             // process each triangle set to load webgl vertex and triangle buffers
             numTriangleSets = inputTriangles.length; // remember how many tri sets
@@ -367,8 +211,6 @@ function loadModels() {
                     inputTriangles[whichSet].glVertices.push(vtxToAdd[0], vtxToAdd[1], vtxToAdd[2]); // put coords in set coord list
                     inputTriangles[whichSet].glNormals.push(normToAdd[0], normToAdd[1], normToAdd[2]); // put normal in set coord list
                     inputTriangles[whichSet].texCoords.push(1 - texToAdd[0], 1 - texToAdd[1]); // put tex coords in set coord list
-                    vec3.max(maxCorner, maxCorner, vtxToAdd); // update world bounding box corner maxima
-                    vec3.min(minCorner, minCorner, vtxToAdd); // update world bounding box corner minima
                     vec3.add(inputTriangles[whichSet].center, inputTriangles[whichSet].center, vtxToAdd); // add to ctr sum
                 } // end for vertices in set
                 vec3.scale(inputTriangles[whichSet].center, inputTriangles[whichSet].center, 1 / numVerts); // avg ctr sum
@@ -382,8 +224,6 @@ function loadModels() {
                 } // end for triangles in set
 
             } // end for each triangle set
-            var temp = vec3.create();
-            viewDelta = vec3.length(vec3.subtract(temp, maxCorner, minCorner)) / 100; // set global
         } // end if triangle file loaded
 
         // add ellipsoids to input tri sets
@@ -540,63 +380,6 @@ function loadEllipsoids() {
 
     return inputEllipsoids;
 } // end load ellipsoids
-
-// Initialize a texture and load an image.
-// When the image finished loading copy it into the texture.
-// SRC = https://developer.mozilla.org/en-US/docs/Web/API/WebGL_API/Tutorial/Using_textures_in_WebGL
-function loadTexture(url) {
-    const texture = gl.createTexture();
-    gl.bindTexture(gl.TEXTURE_2D, texture);
-
-    const isPowerOf2 = function (value) {
-        return (value & (value - 1)) == 0;
-    }
-
-    // Because images have to be download over the internet
-    // they might take a moment until they are ready.
-    // Until then put a single pixel in the texture so we can
-    // use it immediately. When the image has finished downloading
-    // we'll update the texture with the contents of the image.
-    const level = 0;
-    const internalFormat = gl.RGBA;
-    const width = 1;
-    const height = 1;
-    const border = 0;
-    const srcFormat = gl.RGBA;
-    const srcType = gl.UNSIGNED_BYTE;
-    const pixel = new Uint8Array([0, 0, 255, 255]);  // opaque blue
-    gl.texImage2D(gl.TEXTURE_2D, level, internalFormat,
-        width, height, border, srcFormat, srcType,
-        pixel);
-
-    const image = new Image();
-    image.crossOrigin = "Anonymous";
-    image.src = url;
-    image.onload = function () {
-        gl.bindTexture(gl.TEXTURE_2D, texture);
-        gl.texImage2D(gl.TEXTURE_2D, level, internalFormat,
-            srcFormat, srcType, image);
-
-        // WebGL1 has different requirements for power of 2 images
-        // vs non power of 2 images so check if the image is a
-        // power of 2 in both dimensions.
-        if (isPowerOf2(image.width) && isPowerOf2(image.height)) {
-            // Yes, it's a power of 2. Generate mips.
-            gl.generateMipmap(gl.TEXTURE_2D);
-        } else {
-            // No, it's not a power of 2. Turn of mips and set
-            // wrapping to clamp to edge
-            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
-        }
-
-        if (TESTING)
-            window.requestAnimationFrame(renderModels); // set up frame render callback
-    };
-
-    return texture;
-}
 
 // setup the webGL shaders
 function setupShaders() {
@@ -812,17 +595,10 @@ function renderModels() {
     mat4.multiply(pvMatrix, pvMatrix, pMatrix); // projection
     mat4.multiply(pvMatrix, pvMatrix, vMatrix); // projection * view
 
-    gl.depthMask(true); // turn on z-buffering
-
     // render each triangle set
     var currSet; // the tri set and its material properties
     for (var whichTriSet = 0; whichTriSet < numTriangleSets; whichTriSet++) {
         currSet = inputTriangles[whichTriSet];
-
-        if (currSet.material.alpha < TRANS_OPAQUE_BORDER) {
-            gl.depthMask(false); // turn off z-buffering
-            break;
-        }
 
         // make model transform, add to view project
         makeModelTransform(currSet);
