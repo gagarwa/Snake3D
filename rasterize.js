@@ -1,7 +1,6 @@
 /* GLOBAL CONSTANTS AND VARIABLES */
 
 /* BASIC GLOBALS */
-const TESTING = true;
 const GRASS_URL = "grass.jpg"; // grass image location
 const BRICK_URL = "brick.jpg"; // brick image location
 const GRAY_SNAKE_URL = "gray-snake.jpg"; // gray snake skin image location
@@ -9,29 +8,31 @@ const BLUE_SNAKE_URL = "blue-snake.jpg"; // blue snake skin image location
 const EPSILON = 0.000001; // error value for floating point numbers
 
 /* GRID INFORMATION */
-const DEPTH = 1.0; // the play area depth
+const DEPTH = -1.0; // the play area depth
 const CELL_SIZE = 0.05; // the size (height and width) of a cell in the grid
 const BORDER = { BOTTOM: -1, TOP: 1, LEFT: -1, RIGHT: 1 }; // the border for the grid or playing field
 
 /* SNAKE INIT DATA */
+const SPEED = 1.0; // the speed of the snakes (units per sec)
 const DIRECTION = { UP: 0, DOWN: 1, LEFT: 2, RIGHT: 3 }; // enumerated directions
-var PLAYER_SNAKE = {
-    TEXTURE = BLUE_SNAKE_URL, // the snake texture
-    MIN_SIZE = 10, // the min number of cells for the snake
-    START_POS = vec3.fromValues(0, 0, DEPTH), // the starting position of the snake
-    START_DIR = DIRECTION.LEFT // the starting direction of the snake
+var playerSnake = {
+    TEXTURE: BLUE_SNAKE_URL, // the snake texture
+    MIN_SIZE: 8, // the min number of cells for the snake
+    START_POS: vec3.fromValues(0, 0, DEPTH), // the starting position of the snake
+    START_DIR: DIRECTION.LEFT // the starting direction of the snake
 }
-var AUTO_SNAKE = {
-    TEXTURE = GRAY_SNAKE_URL, // the snake texture
-    MIN_SIZE = 10, // the min number of cells for the snake
-    START_POS = vec3.fromValues(0, 0, DEPTH), // the starting position of the snake
-    START_DIR = DIRECTION.LEFT // the starting direction of the snake
+var autoSnake = {
+    TEXTURE: GRAY_SNAKE_URL, // the snake texture
+    MIN_SIZE: 6, // the min number of cells for the snake
+    START_POS: vec3.fromValues(-0.5, 0.5, DEPTH), // the starting position of the snake
+    START_DIR: DIRECTION.RIGHT // the starting direction of the snake
 }
+var snakes = [playerSnake, autoSnake];
 
 /* WEBGL & GEOMETRY DATA */
 var gl; // the all powerful gl object - It's all here folks!
-var OBJ_TYPE = { SPHERE: 0, BOX: 1, FLAT: 2 }; // the types of supported objects
-var OBJ_TYPE = { SPHERE: 0, BOX: 1, FLAT: 2 }; // the types of supported objects
+var OBJ_FORM = { SPHERE: 0, BOX: 1, FLAT: 2 }; // the types of object forms
+var OBJ_TYPE = { FOOD: 0, SOLID: 1, LAND: 2 }; // the types of objects
 var objects = []; // the objects drawn to scene
 var numObjects = 0; // how many objects in input scene
 var then = 0; // the last update time
@@ -39,14 +40,14 @@ var then = 0; // the last update time
 /* SHADER PARAMETER LOCATIONS */
 var vPosAttribLoc; // where to put position for vertex shader
 var vTexAttribLoc; // where to put texture coords for vertex shader
-var pvMatrixULoc; // where to put project view matrix for vertex shader
+var pvmMatrixULoc; // where to put project view matrix for vertex shader
 var texturizeULoc; // where to put texture? for fragment shader
 var colorULoc; // where to put color for fragment shader
 var samplerULoc; // where to put texture for fragment shader
 
 /* VIEWS & CAMERAS */
 const TOP_CAMERA = {
-    eye: vec3.fromValues(0, 0, -0.5), // eye position in world space
+    eye: vec3.fromValues(0, 0, 0.5), // eye position in world space
     center: vec3.fromValues(0, 0, 0), // view direction in world space
     up: vec3.fromValues(0, 1, 0) // view up vector in world space
 };
@@ -111,8 +112,26 @@ function handleKeyDown(event) {
             } // end if shift not pressed
             break;
 
-        // model selection
-        case "Space":
+        // player snake controls
+        case "ArrowRight":
+            if (playerSnake.dir == DIRECTION.UP || playerSnake.dir == DIRECTION.DOWN) {
+                playerSnake.dir = DIRECTION.RIGHT;
+            }
+            break;
+        case "ArrowLeft":
+            if (playerSnake.dir == DIRECTION.UP || playerSnake.dir == DIRECTION.DOWN) {
+                playerSnake.dir = DIRECTION.LEFT;
+            }
+            break;
+        case "ArrowUp":
+            if (playerSnake.dir == DIRECTION.RIGHT || playerSnake.dir == DIRECTION.LEFT) {
+                playerSnake.dir = DIRECTION.UP;
+            }
+            break;
+        case "ArrowDown":
+            if (playerSnake.dir == DIRECTION.RIGHT || playerSnake.dir == DIRECTION.LEFT) {
+                playerSnake.dir = DIRECTION.DOWN;
+            }
             break;
 
     } // end switch
@@ -175,14 +194,18 @@ function drawObject(obj, type) {
     obj.vtxCount = 0; // number of vertices in the object
     obj.triCount = 0; // number of triangles in the object
 
+    obj.collides = function (other) {
+        return vec3.dist(this.pos, other.pos) < EPSILON;
+    };
+
     // temp parameterization variables
     var vtx = vec3.clone(obj.pos);
 
     switch (type) {
-        case OBJ_TYPE.SPHERE:
+        case OBJ_FORM.SPHERE:
             const pts = 24;
-            const x = vtx[0] + CELL_SIZE / 2;
-            const y = vtx[1] + CELL_SIZE / 2;
+            const x = vtx[0];
+            const y = vtx[1];
             const z = vtx[2] + CELL_SIZE / 2;
             const r = CELL_SIZE / 2;
 
@@ -216,8 +239,9 @@ function drawObject(obj, type) {
             }
 
             break;
-        case OBJ_TYPE.BOX:
+        case OBJ_FORM.BOX:
             // temp parameterization variables
+            vec3.add(vtx, vtx, vec3.fromValues(-CELL_SIZE / 2, -CELL_SIZE / 2, 0));
             const axis = obj.axis;
             const cx = (axis == 0) ? 0 : CELL_SIZE;
             const cy = (axis == 0) ? CELL_SIZE : 0;
@@ -246,7 +270,7 @@ function drawObject(obj, type) {
                 }
 
                 if (t == 0) {
-                    vtx[axis] = obj.taxis; // change to second position
+                    vtx[axis] = obj.taxis - CELL_SIZE / 2; // change to second position
                     tex = obj.mtex.left; // map to left texture
                     var index = obj.vtxCount; // the index for the second layer
                 }
@@ -265,6 +289,22 @@ function drawObject(obj, type) {
             obj.vtxCount += 2;
             obj.texCoords.push(tex, 0.75, tex, 1.0);
             obj.glTriangles.push(11, 10, 12, 13); // last indices, back face
+            break;
+        case OBJ_FORM.FLAT:
+            vec3.add(vtx, vtx, vec3.fromValues(-CELL_SIZE / 2, -CELL_SIZE / 2, 0));
+            var tex = obj.mtex.right; // map to right texture
+            obj.glVertices.push(vtx[0], vtx[1], vtx[2]);
+            obj.glVertices.push(vtx[0] + CELL_SIZE, vtx[1], vtx[2]);
+            obj.texCoords.push(tex, 0, tex, 1);
+
+            tex = obj.mtex.left; // map to left texture
+            obj.glVertices.push(vtx[0], vtx[1] + CELL_SIZE, vtx[2]);
+            obj.glVertices.push(vtx[0] + CELL_SIZE, vtx[1] + CELL_SIZE, vtx[2]);
+            obj.texCoords.push(tex, 0, tex, 1);
+            obj.vtxCount += 4;
+
+            obj.glTriangles.push(0, 1, 2, 3); // put indices in set list
+            obj.triCount += 2;
             break;
     }
 }
@@ -323,12 +363,12 @@ function initShaders() {
         attribute vec3 aVertexPosition; // vertex position
         attribute vec2 aTextureCoord; // texture coordinates
 
-        uniform mat4 upvMatrix; // the project view matrix
+        uniform mat4 upvmMatrix; // the project view matrix
         varying vec2 vTextureCoord; // interpolated texture coords of vertex
 
         void main(void) {
             // vertex position
-            gl_Position = upvMatrix * vec4(aVertexPosition, 1.0);
+            gl_Position = upvmMatrix * vec4(aVertexPosition, 1.0);
 
             // texture coordinates
             vTextureCoord = aTextureCoord;
@@ -390,7 +430,7 @@ function initShaders() {
                 gl.enableVertexAttribArray(vTexAttribLoc); // connect attrib to array
 
                 // locate uniforms
-                pvMatrixULoc = gl.getUniformLocation(shaderProgram, "upvMatrix"); // ptr to pvmat
+                pvmMatrixULoc = gl.getUniformLocation(shaderProgram, "upvmMatrix"); // ptr to pvmmat
                 texturizeULoc = gl.getUniformLocation(shaderProgram, "uTexturize"); // ptr to texturize
                 colorULoc = gl.getUniformLocation(shaderProgram, "uColor"); // ptr to color
                 samplerULoc = gl.getUniformLocation(shaderProgram, "uSampler"); // ptr to sampler
@@ -403,20 +443,22 @@ function initShaders() {
     } // end catch
 }
 
-// setup the snakes
-function initSnakes() {
-    // global parameters
-    const texture = loadTexture(SNAKE_SKIN_URL); // load snake skin texture
-    var pos = vec3.clone(SNAKE_START_POS); // the starting position
-    const sdir = SNAKE_START_DIR; // the starting direction
-    const axis = (sdir == DIRECTION.LEFT || sdir == DIRECTION.RIGHT) ? 0 : 1; // the axis of motion
-    const dir = (sdir == DIRECTION.DOWN || sdir == DIRECTION.LEFT) ? 1 : -1; // the direction of motion (pos or neg)
+// setup (or reset) the snake object
+function initSnake(snake) {
+    snake.dir = snake.START_DIR; // the starting direction
+
+    // snake parameters
+    const texture = loadTexture(snake.TEXTURE); // load snake skin texture
+    const axis = (snake.dir == DIRECTION.LEFT || snake.dir == DIRECTION.RIGHT) ? 0 : 1; // the axis of motion
+    const dir = (snake.dir == DIRECTION.DOWN || snake.dir == DIRECTION.LEFT) ? -1 : 1; // the direction of motion (pos or neg)
+    var pos = vec3.clone(snake.START_POS); // the starting position
     var tex = 0.0;
 
-    for (var whichBox = 0; whichBox < SNAKE_MIN_SIZE; whichBox++) {
+    for (var whichBox = 0; whichBox < snake.MIN_SIZE; whichBox++) {
         var box = {}; // new box object
 
         // init
+        box.type = OBJ_TYPE.SOLID;
         box.texturize = true;
         box.texture = texture;
         box.pos = vec3.clone(pos); // the current position
@@ -431,10 +473,10 @@ function initSnakes() {
 
         var temp = vec3.clone(pos);
         temp[axis] += dir * CELL_SIZE;
-        box.dir = sdir;
+        box.dir = snake.dir;
         box.next = temp; // the next position
 
-        drawObject(box, OBJ_TYPE.BOX);
+        drawObject(box, OBJ_FORM.BOX);
         processObject(box);
         objects[numObjects] = box;
         numObjects++;
@@ -444,9 +486,128 @@ function initSnakes() {
     }
 }
 
+// create (or reset) the snake food object
+function initSnakeFood() {
+    var food = {}; // the food object
+
+    // init
+    food.type = OBJ_TYPE.FOOD;
+    food.texturize = false;
+    food.color = vec3.fromValues(0, 0, 1);
+
+    var dx = (Math.floor(Math.random() * 39) - 19) * CELL_SIZE;
+    var dy = (Math.floor(Math.random() * 39) - 19) * CELL_SIZE;
+    food.pos = vec3.fromValues(dx, dy, DEPTH); // the object position
+
+    drawObject(food, OBJ_FORM.SPHERE);
+    processObject(food);
+    objects[numObjects] = food;
+    numObjects++;
+}
+
+// setup the snakes
+function initSnakes() {
+    for (var t = 0; t < snakes.length; t++) {
+        var snake = snakes[t];
+        initSnake(snake);
+    }
+}
+
 // setup food and other items
 function initObjects() {
+    // create snake food
+    initSnakeFood();
 
+    // brick wall parameters
+    var texture = loadTexture(BRICK_URL); // load brick texture
+    var axis = 0; // the axis to draw on
+    var dir = 1; // the direction to draw in (pos or neg)
+    var pos = vec3.fromValues(BORDER.LEFT, BORDER.BOTTOM, DEPTH); // the starting position
+    var tex = 0.0;
+    var draw = true; // draw border
+
+    while (draw) {
+        var box = {}; // new box object
+
+        // init
+        box.type = OBJ_TYPE.SOLID;
+        box.texturize = true;
+        box.texture = texture;
+        box.pos = vec3.clone(pos); // the current position
+        box.axis = 0; // the axis to draw on
+        box.taxis = pos[0] - CELL_SIZE; // the next layer, based on axis
+        box.mtex = {
+            front: tex,
+            right: tex + 0.25,
+            left: tex + 0.50,
+            back: tex + 0.75
+        }; // the texture map
+
+        drawObject(box, OBJ_FORM.BOX);
+        processObject(box);
+        objects[numObjects] = box;
+        numObjects++;
+
+        tex = (tex < 0.25 - EPSILON) ? tex + 0.25 : 0.0;
+        pos[axis] += dir * CELL_SIZE;
+
+        switch (axis) {
+            case 0:
+                switch (dir) {
+                    case 1:
+                        if (pos[axis] > BORDER.RIGHT - EPSILON) {
+                            axis = 1;
+                        }
+                        break;
+                    case -1:
+                        if (pos[axis] < BORDER.LEFT + EPSILON) {
+                            axis = 1;
+                        }
+                        break;
+                }
+                break;
+            case 1:
+                switch (dir) {
+                    case 1:
+                        if (pos[axis] > BORDER.TOP - EPSILON) {
+                            axis = 0;
+                            dir = -1;
+                        }
+                        break;
+                    case -1:
+                        if (pos[axis] < BORDER.BOTTOM + EPSILON)
+                            draw = false;
+                        break;
+                }
+                break;
+        }
+    }
+
+    // green grass parameters
+    var texture = loadTexture(GRASS_URL); // load grass texture
+
+    for (var dx = BORDER.LEFT; dx < BORDER.RIGHT - EPSILON; dx += CELL_SIZE) {
+        for (var dy = BORDER.BOTTOM; dy < BORDER.TOP - EPSILON; dy += CELL_SIZE) {
+            var box = {}; // new box object
+
+            // init
+            box.type = OBJ_TYPE.LAND;
+            box.texturize = true;
+            box.texture = texture;
+            box.pos = vec3.fromValues(dx, dy, DEPTH); // the current position
+            box.mtex = {
+                right: 0,
+                left: 1,
+            }; // the texture map
+
+            drawObject(box, OBJ_FORM.FLAT);
+            processObject(box);
+            objects[numObjects] = box;
+            numObjects++;
+
+            pos[axis] += dir * CELL_SIZE;
+        }
+    }
 }
 
 /* UPDATE & PROCESSING FUNCTIONS */
@@ -463,7 +624,7 @@ function updateView() {
     mat4.multiply(pvMatrix, pvMatrix, pMatrix); // projection
     mat4.multiply(pvMatrix, pvMatrix, vMatrix); // projection * view
 
-    gl.uniformMatrix4fv(pvMatrixULoc, false, pvMatrix); // pass in the pv matrix
+    gl.uniformMatrix4fv(pvmMatrixULoc, false, pvMatrix); // pass in the pv matrix
 }
 
 // update snakes
@@ -509,8 +670,8 @@ function renderFrame(now) {
     var dt = now - then;
     then = now;
 
-    updateView(); // update view
     updateSnakes(dt); // update snake
+    updateView(); // update view
     renderObjects(); // render game objects
     requestAnimationFrame(renderFrame); // set up frame render callback
 }
@@ -529,5 +690,5 @@ function start() {
 
 // here is where execution begins after window load
 function main() {
-    start();
+    start(); // start game
 }
