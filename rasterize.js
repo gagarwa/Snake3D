@@ -2,24 +2,39 @@
 
 /* BASIC GLOBALS */
 const TESTING = true;
-const SNAKE_SKIN_URL = "http://cdn.designbeep.com/wp-content/uploads/2013/02/8.snake-textures.jpg"; // snake skin image location
+const GRASS_URL = "grass.jpg"; // grass image location
+const BRICK_URL = "brick.jpg"; // brick image location
+const GRAY_SNAKE_URL = "gray-snake.jpg"; // gray snake skin image location
+const BLUE_SNAKE_URL = "blue-snake.jpg"; // blue snake skin image location
 const EPSILON = 0.000001; // error value for floating point numbers
+
+/* GRID INFORMATION */
+const DEPTH = 1.0; // the play area depth
 const CELL_SIZE = 0.05; // the size (height and width) of a cell in the grid
-const BORDER = { bottom: -1, top: 1, left: -1, right: 1 }; // the border for the grid or playing field
-const DIRECTION = {
-    UP: vec2.fromValues(0, 1),
-    DOWN: vec2.fromValues(0, -1),
-    LEFT: vec2.fromValues(-1, 0),
-    RIGHT: vec2.fromValues(1, 0),
-}; // enumerated directions
-const SNAKE_MIN_SIZE = 10; // the min number of cells for the snake
-const SNAKE_START_POS = vec3.fromValues(0, 0, 0.5); // the starting position of the snake
-const SNAKE_START_DIR = DIRECTION.LEFT; // the starting direction of the snake
+const BORDER = { BOTTOM: -1, TOP: 1, LEFT: -1, RIGHT: 1 }; // the border for the grid or playing field
+
+/* SNAKE INIT DATA */
+const DIRECTION = { UP: 0, DOWN: 1, LEFT: 2, RIGHT: 3 }; // enumerated directions
+var PLAYER_SNAKE = {
+    TEXTURE = BLUE_SNAKE_URL, // the snake texture
+    MIN_SIZE = 10, // the min number of cells for the snake
+    START_POS = vec3.fromValues(0, 0, DEPTH), // the starting position of the snake
+    START_DIR = DIRECTION.LEFT // the starting direction of the snake
+}
+var AUTO_SNAKE = {
+    TEXTURE = GRAY_SNAKE_URL, // the snake texture
+    MIN_SIZE = 10, // the min number of cells for the snake
+    START_POS = vec3.fromValues(0, 0, DEPTH), // the starting position of the snake
+    START_DIR = DIRECTION.LEFT // the starting direction of the snake
+}
 
 /* WEBGL & GEOMETRY DATA */
-var gl = null; // the all powerful gl object - It's all here folks!
+var gl; // the all powerful gl object - It's all here folks!
+var OBJ_TYPE = { SPHERE: 0, BOX: 1, FLAT: 2 }; // the types of supported objects
+var OBJ_TYPE = { SPHERE: 0, BOX: 1, FLAT: 2 }; // the types of supported objects
 var objects = []; // the objects drawn to scene
 var numObjects = 0; // how many objects in input scene
+var then = 0; // the last update time
 
 /* SHADER PARAMETER LOCATIONS */
 var vPosAttribLoc; // where to put position for vertex shader
@@ -30,12 +45,17 @@ var colorULoc; // where to put color for fragment shader
 var samplerULoc; // where to put texture for fragment shader
 
 /* VIEWS & CAMERAS */
-const FRONT_CAMERA = {
+const TOP_CAMERA = {
     eye: vec3.fromValues(0, 0, -0.5), // eye position in world space
-    center: vec3.fromValues(0, 0, 0.5), // view direction in world space
+    center: vec3.fromValues(0, 0, 0), // view direction in world space
     up: vec3.fromValues(0, 1, 0) // view up vector in world space
 };
-var pvMatrix = mat4.create(); // proj * view matrices
+const SIDE_CAMERA = {
+    eye: vec3.fromValues(0, 1.5, 0.5), // eye position in world space
+    center: vec3.fromValues(0, 0, 0.5), // view direction in world space
+    up: vec3.fromValues(0, 0, 1) // view up vector in world space
+};
+var camera = TOP_CAMERA; // the current view
 
 /* HELPER FUNCTIONS */
 
@@ -43,23 +63,59 @@ var pvMatrix = mat4.create(); // proj * view matrices
 function handleKeyDown(event) {
     // set up needed view params
     var lookAt = vec3.create(), viewRight = vec3.create(), temp = vec3.create(); // lookat, right & temp vectors
-    lookAt = vec3.normalize(lookAt, vec3.subtract(temp, center, Eye)); // get lookat vector
-    viewRight = vec3.normalize(viewRight, vec3.cross(temp, lookAt, Up)); // get view right vector
+    lookAt = vec3.normalize(lookAt, vec3.subtract(temp, camera.center, camera.eye)); // get lookat vector
+    viewRight = vec3.normalize(viewRight, vec3.cross(temp, lookAt, camera.up)); // get view right vector
+    var viewDelta = 1 / 30;
 
     switch (event.code) {
 
+        // view change
+        case "KeyA": // translate view left, rotate left with shift
+            camera.center = vec3.add(camera.center, camera.center, vec3.scale(temp, viewRight, viewDelta));
+            if (!event.getModifierState("Shift")) { camera.eye = vec3.add(camera.eye, camera.eye, vec3.scale(temp, viewRight, viewDelta)); }
+            break;
+        case "KeyD": // translate view right, rotate right with shift
+            camera.center = vec3.add(camera.center, camera.center, vec3.scale(temp, viewRight, -viewDelta));
+            if (!event.getModifierState("Shift")) { camera.eye = vec3.add(camera.eye, camera.eye, vec3.scale(temp, viewRight, -viewDelta)); }
+            break;
+        case "KeyS": // translate view backward, rotate up with shift
+            if (event.getModifierState("Shift")) {
+                camera.center = vec3.add(camera.center, camera.center, vec3.scale(temp, camera.up, viewDelta));
+                camera.up = vec3.cross(camera.up, viewRight, vec3.subtract(lookAt, camera.center, camera.eye)); /* global side effect */
+            } else {
+                camera.eye = vec3.add(camera.eye, camera.eye, vec3.scale(temp, lookAt, -viewDelta));
+                camera.center = vec3.add(camera.center, camera.center, vec3.scale(temp, lookAt, -viewDelta));
+            } // end if shift not pressed
+            break;
+        case "KeyW": // translate view forward, rotate down with shift
+            if (event.getModifierState("Shift")) {
+                camera.center = vec3.add(camera.center, camera.center, vec3.scale(temp, camera.up, -viewDelta));
+                camera.up = vec3.cross(camera.up, viewRight, vec3.subtract(lookAt, camera.center, camera.eye)); /* global side effect */
+            } else {
+                camera.eye = vec3.add(camera.eye, camera.eye, vec3.scale(temp, lookAt, viewDelta));
+                camera.center = vec3.add(camera.center, camera.center, vec3.scale(temp, lookAt, viewDelta));
+            } // end if shift not pressed
+            break;
+        case "KeyQ": // translate view up, rotate counterclockwise with shift
+            if (event.getModifierState("Shift")) { camera.up = vec3.normalize(camera.up, vec3.add(camera.up, camera.up, vec3.scale(temp, viewRight, -viewDelta))); }
+            else {
+                camera.eye = vec3.add(camera.eye, camera.eye, vec3.scale(temp, camera.up, viewDelta));
+                camera.center = vec3.add(camera.center, camera.center, vec3.scale(temp, camera.up, viewDelta));
+            } // end if shift not pressed
+            break;
+        case "KeyE": // translate view down, rotate clockwise with shift
+            if (event.getModifierState("Shift")) { camera.up = vec3.normalize(camera.up, vec3.add(camera.up, camera.up, vec3.scale(temp, viewRight, viewDelta))); }
+            else {
+                camera.eye = vec3.add(camera.eye, camera.eye, vec3.scale(temp, camera.up, -viewDelta));
+                camera.center = vec3.add(camera.center, camera.center, vec3.scale(temp, camera.up, -viewDelta));
+            } // end if shift not pressed
+            break;
+
         // model selection
         case "Space":
-            if (handleKeyDown.modelOn != null)
-                handleKeyDown.modelOn.on = false; // turn off highlighted model
-            handleKeyDown.modelOn = null; // no highlighted model
-            handleKeyDown.whichOn = -1; // nothing highlighted
             break;
 
     } // end switch
-
-    if (TESTING)
-        window.requestAnimationFrame(renderModels); // set up frame render callback
 }
 
 // Initialize a texture and load an image.
@@ -71,13 +127,11 @@ function loadTexture(url) {
 
     const isPowerOf2 = function (value) {
         return (value & (value - 1)) == 0;
-    }
+    };
 
-    // Because images have to be download over the internet
-    // they might take a moment until they are ready.
-    // Until then put a single pixel in the texture so we can
-    // use it immediately. When the image has finished downloading
-    // we'll update the texture with the contents of the image.
+    // Because images have to be download over the internet they might take a moment until they are ready.
+    // Until then put a single pixel in the texture so we can use it immediately. When the image
+    // has finished downloading we'll update the texture with the contents of the image.
     const level = 0;
     const internalFormat = gl.RGBA;
     const width = 1;
@@ -86,38 +140,151 @@ function loadTexture(url) {
     const srcFormat = gl.RGBA;
     const srcType = gl.UNSIGNED_BYTE;
     const pixel = new Uint8Array([0, 0, 255, 255]);  // opaque blue
-    gl.texImage2D(gl.TEXTURE_2D, level, internalFormat,
-        width, height, border, srcFormat, srcType,
-        pixel);
+    gl.texImage2D(gl.TEXTURE_2D, level, internalFormat, width, height, border, srcFormat, srcType, pixel);
 
     const image = new Image();
-    image.crossOrigin = "Anonymous";
-    image.src = url;
     image.onload = function () {
         gl.bindTexture(gl.TEXTURE_2D, texture);
-        gl.texImage2D(gl.TEXTURE_2D, level, internalFormat,
-            srcFormat, srcType, image);
+        gl.texImage2D(gl.TEXTURE_2D, level, internalFormat, srcFormat, srcType, image);
 
-        // WebGL1 has different requirements for power of 2 images
-        // vs non power of 2 images so check if the image is a
-        // power of 2 in both dimensions.
+        // WebGL1 has different requirements for power of 2 images vs non power of 2 images
+        // so check if the image is a power of 2 in both dimensions.
         if (isPowerOf2(image.width) && isPowerOf2(image.height)) {
-            // Yes, it's a power of 2. Generate mips.
-            gl.generateMipmap(gl.TEXTURE_2D);
+            gl.generateMipmap(gl.TEXTURE_2D); // Yes, it's a power of 2. Generate mips.
         } else {
-            // No, it's not a power of 2. Turn off mips and set
-            // wrapping to clamp to edge
+            // No, it's not a power of 2. Turn off mips and set wrapping to clamp to edge
             gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
             gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
             gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
-            console.log("working");
         }
-
-        if (TESTING)
-            window.requestAnimationFrame(renderModels); // set up frame render callback
     };
 
+    image.crossOrigin = "Anonymous";
+    image.src = url;
+
     return texture;
+}
+
+// creates the requested object type
+// expected obj properties: pos, axis, taxis, mtex
+function drawObject(obj, type) {
+    // set up the vertex arrays, tri index array
+    obj.glVertices = []; // flat coord list for webgl
+    obj.texCoords = []; // flat texture coord list for webgl
+    obj.glTriangles = []; // flat index list for webgl
+    obj.vtxCount = 0; // number of vertices in the object
+    obj.triCount = 0; // number of triangles in the object
+
+    // temp parameterization variables
+    var vtx = vec3.clone(obj.pos);
+
+    switch (type) {
+        case OBJ_TYPE.SPHERE:
+            const pts = 24;
+            const x = vtx[0] + CELL_SIZE / 2;
+            const y = vtx[1] + CELL_SIZE / 2;
+            const z = vtx[2] + CELL_SIZE / 2;
+            const r = CELL_SIZE / 2;
+
+            // temp information for ellipsoid rows
+            obj.texCoords = [0, 0]; // null texture coords
+            var prevIndex = -1; // the index for the previous row
+            var index = 0; // the index for the current row
+
+            // set up the vertex array
+            for (var theta = -Math.PI / 2; theta <= Math.PI / 2 + EPSILON; theta += Math.PI / pts) {
+                var dz = r * Math.sin(theta) + z;
+                for (var phi = -Math.PI; phi <= Math.PI + EPSILON; phi += Math.PI / (pts / 2)) {
+                    var dx = r * Math.cos(theta) * Math.cos(phi) + x;
+                    var dy = r * Math.cos(theta) * Math.sin(phi) + y;
+                    obj.glVertices.push(dx, dy, dz); // put coords in set coord list
+                    obj.vtxCount++;
+                }
+
+                // set up the triangle array
+                if (prevIndex != -1) {
+                    var idx = index;
+                    for (var prev = prevIndex; prev < index; prev++) {
+                        obj.glTriangles.push(prev, idx++); // put indices in set list
+                        obj.triCount += 2;
+                    }
+                }
+
+                // update sphere row information
+                prevIndex = index;
+                index = obj.vtxCount;
+            }
+
+            break;
+        case OBJ_TYPE.BOX:
+            // temp parameterization variables
+            const axis = obj.axis;
+            const cx = (axis == 0) ? 0 : CELL_SIZE;
+            const cy = (axis == 0) ? CELL_SIZE : 0;
+
+            // Front Face
+            var tex = obj.mtex.front; // map to front texture
+            obj.glVertices.push(vtx[0] + cx, vtx[1] + cy, vtx[2] + CELL_SIZE);
+            obj.glVertices.push(vtx[0] + cx, vtx[1] + cy, vtx[2]);
+            obj.vtxCount += 2;
+            obj.texCoords.push(tex, 0, tex, 0.25);
+            obj.glTriangles.push(0, 1, 3, 2); // first indices, front face
+            obj.triCount += 2;
+
+            // Cylinder Face
+            tex = obj.mtex.right; // map to right texture
+            for (var t = 0; t < 2; t++) {
+                obj.glVertices.push(vtx[0], vtx[1], vtx[2]);
+                obj.glVertices.push(vtx[0], vtx[1], vtx[2] + CELL_SIZE);
+                obj.glVertices.push(vtx[0] + cx, vtx[1] + cy, vtx[2] + CELL_SIZE);
+                obj.glVertices.push(vtx[0] + cx, vtx[1] + cy, vtx[2]);
+                obj.glVertices.push(vtx[0], vtx[1], vtx[2]);
+                obj.vtxCount += 5;
+
+                for (var whichVtx = 0; whichVtx < 5; whichVtx++) {
+                    obj.texCoords.push(tex, whichVtx * 0.25); // put tex coords in set coord list
+                }
+
+                if (t == 0) {
+                    vtx[axis] = obj.taxis; // change to second position
+                    tex = obj.mtex.left; // map to left texture
+                    var index = obj.vtxCount; // the index for the second layer
+                }
+            }
+
+            var idx = index;
+            for (var whichVtx = 2; whichVtx < index; whichVtx++) {
+                obj.glTriangles.push(whichVtx, idx++); // put indices in set list
+                obj.triCount += 2;
+            }
+
+            // Back Face
+            tex = obj.mtex.back; // map to back texture
+            obj.glVertices.push(vtx[0], vtx[1], vtx[2] + CELL_SIZE); // index 12
+            obj.glVertices.push(vtx[0] + cx, vtx[1] + cy, vtx[2] + CELL_SIZE); // index 13
+            obj.vtxCount += 2;
+            obj.texCoords.push(tex, 0.75, tex, 1.0);
+            obj.glTriangles.push(11, 10, 12, 13); // last indices, back face
+            break;
+    }
+}
+
+// process object buffers
+function processObject(obj) {
+    // send the vertex coords and normals to webGL
+    obj.vtxBuffer = gl.createBuffer(); // init empty webgl set vertex coord buffer
+    gl.bindBuffer(gl.ARRAY_BUFFER, obj.vtxBuffer); // activate that buffer
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(obj.glVertices), gl.STATIC_DRAW); // data in
+
+    // send the texture coords to webGL
+    obj.texBuffer = gl.createBuffer(); // init empty webgl set texture coord buffer
+    gl.bindBuffer(gl.ARRAY_BUFFER, obj.texBuffer); // activate that buffer
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(obj.texCoords), gl.STATIC_DRAW); // data in
+
+    // send the triangle indices to webGL
+    obj.triBuffer = gl.createBuffer(); // init empty triangle index buffer
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, obj.triBuffer); // activate that buffer
+    gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(obj.glTriangles), gl.STATIC_DRAW); // data in
 }
 
 /* INIT FUNCTIONS */
@@ -155,7 +322,7 @@ function initShaders() {
     var vShaderCode = `
         attribute vec3 aVertexPosition; // vertex position
         attribute vec2 aTextureCoord; // texture coordinates
-        
+
         uniform mat4 upvMatrix; // the project view matrix
         varying vec2 vTextureCoord; // interpolated texture coords of vertex
 
@@ -171,10 +338,10 @@ function initShaders() {
     // define fragment shader in essl using es6 template strings
     var fShaderCode = `
         precision mediump float; // set float to medium precision
-        
+
         // material properties
         uniform bool uTexturize; // use texture?
-        uniform vec3 vColor; // color of fragment
+        uniform vec3 uColor; // color of fragment
 
         // texture properties
         uniform sampler2D uSampler; // the texture sampler
@@ -185,7 +352,7 @@ function initShaders() {
                 vec4 texColor = texture2D(uSampler, vTextureCoord); // texture color
                 gl_FragColor = texColor;
             } else {
-                gl_FragColor = vec4(vColor, 1.0); // fragment color
+                gl_FragColor = vec4(uColor, 1.0); // fragment color
             }
         }
     `;
@@ -200,11 +367,11 @@ function initShaders() {
         gl.compileShader(vShader); // compile the code for gpu execution
 
         if (!gl.getShaderParameter(fShader, gl.COMPILE_STATUS)) { // bad frag shader compile
-            throw "error during fragment shader compile: " + gl.getShaderInfoLog(fShader);
             gl.deleteShader(fShader);
+            throw "error during fragment shader compile: " + gl.getShaderInfoLog(fShader);
         } else if (!gl.getShaderParameter(vShader, gl.COMPILE_STATUS)) { // bad vertex shader compile
-            throw "error during vertex shader compile: " + gl.getShaderInfoLog(vShader);
             gl.deleteShader(vShader);
+            throw "error during vertex shader compile: " + gl.getShaderInfoLog(vShader);
         } else { // no compile errors
             var shaderProgram = gl.createProgram(); // create the single shader program
             gl.attachShader(shaderProgram, fShader); // put frag shader in program
@@ -229,186 +396,79 @@ function initShaders() {
                 samplerULoc = gl.getUniformLocation(shaderProgram, "uSampler"); // ptr to sampler
             } // end if no shader program link errors
         } // end if no compile errors
-    } // end try 
+    } // end try
 
     catch (e) {
         console.log(e);
     } // end catch
 }
 
-// setup the camera views
-function initView() {
+// setup the snakes
+function initSnakes() {
+    // global parameters
+    const texture = loadTexture(SNAKE_SKIN_URL); // load snake skin texture
+    var pos = vec3.clone(SNAKE_START_POS); // the starting position
+    const sdir = SNAKE_START_DIR; // the starting direction
+    const axis = (sdir == DIRECTION.LEFT || sdir == DIRECTION.RIGHT) ? 0 : 1; // the axis of motion
+    const dir = (sdir == DIRECTION.DOWN || sdir == DIRECTION.LEFT) ? 1 : -1; // the direction of motion (pos or neg)
+    var tex = 0.0;
+
+    for (var whichBox = 0; whichBox < SNAKE_MIN_SIZE; whichBox++) {
+        var box = {}; // new box object
+
+        // init
+        box.texturize = true;
+        box.texture = texture;
+        box.pos = vec3.clone(pos); // the current position
+        box.axis = axis; // the axis of movement
+        box.taxis = pos[axis] - (dir * CELL_SIZE); // the next layer, based on axis
+        box.mtex = {
+            front: tex,
+            right: tex + 0.1,
+            left: tex + 0.2,
+            back: tex + 0.3
+        }; // the texture map
+
+        var temp = vec3.clone(pos);
+        temp[axis] += dir * CELL_SIZE;
+        box.dir = sdir;
+        box.next = temp; // the next position
+
+        drawObject(box, OBJ_TYPE.BOX);
+        processObject(box);
+        objects[numObjects] = box;
+        numObjects++;
+
+        tex = (tex < 0.7 - EPSILON) ? tex + 0.1 : 0.0;
+        pos[axis] -= dir * CELL_SIZE;
+    }
+}
+
+// setup food and other items
+function initObjects() {
+
+}
+
+/* UPDATE & PROCESSING FUNCTIONS */
+
+// update the camera view
+function updateView() {
     var pMatrix = mat4.create(); // projection matrix
     var vMatrix = mat4.create(); // view matrix
+    pvMatrix = mat4.create(); // projection * view matrix
 
     // set up projection and view
     mat4.perspective(pMatrix, 0.5 * Math.PI, 1, 0.1, 10); // create projection matrix
-    mat4.lookAt(vMatrix, FRONT_CAMERA.eye, FRONT_CAMERA.center, FRONT_CAMERA.up); // create view matrix
+    mat4.lookAt(vMatrix, camera.eye, camera.center, camera.up); // create view matrix
     mat4.multiply(pvMatrix, pvMatrix, pMatrix); // projection
     mat4.multiply(pvMatrix, pvMatrix, vMatrix); // projection * view
 
     gl.uniformMatrix4fv(pvMatrixULoc, false, pvMatrix); // pass in the pv matrix
 }
 
-// setup the snake
-function initSnake() {
-    var snake = {}; // the snake object
+// update snakes
+function updateSnakes(dt) {
 
-    // init
-    snake.pos = SNAKE_START_POS; // the starting position
-    snake.dir = SNAKE_START_DIR; // the starting direction
-    snake.texLayer = 0.0; // the current texture layer
-
-    // load texture
-    snake.texturize = true; // texturize?
-    snake.texture = loadTexture(SNAKE_SKIN_URL); // load snake skin texture
-
-    // set up the vertex arrays
-    snake.glVertices = []; // flat coord list for webgl
-    snake.texCoords = []; // flat texture coord list for webgl
-
-    // set up the triangle index array
-    snake.glTriangles = []; // flat index list for webgl
-    snake.vtxCount = 0; // number of vertices in the snake
-    snake.triCount = 0; // number of triangles in the snake
-
-    // temp parameterization variables
-    var vtx = vec3.clone(snake.pos);
-    var prevIndex = -1; // the index for the previous layer
-    var index = 0; // the index for the current layer
-    var axis = (snake.dir == DIRECTION.LEFT || snake.dir == DIRECTION.RIGHT) ? 0 : 1; // the axis of motion
-    var dir = (snake.dir == DIRECTION.DOWN || snake.dir == DIRECTION.LEFT) ? 1 : -1; // the direction of motion (pos or neg)
-    var x = (axis == 0) ? 0 : CELL_SIZE;
-    var y = (axis == 0) ? CELL_SIZE : 0;
-
-    snake.glTriangles.push(0); // first index
-    for (var whichLay = 0; whichLay < SNAKE_MIN_SIZE + 1; whichLay++) {
-        snake.glVertices.push(vtx[0], vtx[1], vtx[2]); // put coords in set coord list
-        snake.glVertices.push(vtx[0], vtx[1], vtx[2] + CELL_SIZE);
-        snake.glVertices.push(vtx[0] + x, vtx[1] + y, vtx[2] + CELL_SIZE);
-        snake.glVertices.push(vtx[0] + x, vtx[1] + y, vtx[2]);
-        snake.glVertices.push(vtx[0], vtx[1], vtx[2]);
-        snake.vtxCount += 5;
-
-        for (var whichVtx = 0; whichVtx < 5; whichVtx++) {
-            snake.texCoords.push(snake.texLayer, whichVtx * 0.25); // put tex coords in set coord list
-        }
-
-        if (prevIndex != -1) {
-            var idx = index;
-            snake.glTriangles.push(idx++);
-            for (var whichVtx = prevIndex + 1; whichVtx < index; whichVtx++) {
-                snake.glTriangles.push(whichVtx, idx++); // put indices in set list
-                snake.triCount += 2;
-            }
-        }
-
-        snake.texLayer = (snake.texLayer < 1.0 - EPSILON) ? snake.texLayer + 0.1 : 0.0;
-        vtx[axis] += dir * CELL_SIZE;
-        prevIndex = index;
-        index += 5;
-    }
-
-    objects[0] = snake;
-    numObjects++;
-}
-
-// setup food and other items
-function initObjects() {
-    if (inputEllipsoids != String.null) {
-        // process each ellipsoid to load webgl vertex and triangle buffers
-        numEllipsoids = inputEllipsoids.length; // remember how many tri sets
-        for (var whichSet = 0; whichSet < numEllipsoids; whichSet++) { // for each ellipsoid tri set
-            // ellipsoid description
-            inputEllipsoids[whichSet].ellipsoid = true; // is ellipsoid?
-            var x = inputEllipsoids[whichSet].x;
-            var y = inputEllipsoids[whichSet].y;
-            var z = inputEllipsoids[whichSet].z;
-            var r = GRID_SIZE;
-
-            // load texture
-            var texture = inputEllipsoids[whichSet].texture;
-            inputEllipsoids[whichSet].texture = loadTexture(BASE_URL + texture);
-
-            // set up the vertex and normal arrays, define model center and axes
-            inputEllipsoids[whichSet].glVertices = []; // flat coord list for webgl
-            inputEllipsoids[whichSet].texCoords = []; // flat texture coord list for webgl
-            inputEllipsoids[whichSet].glTriangles = []; // flat index list for webgl
-
-            // temp information for ellipsoid rows
-            var prevRowIndex = -1; // the index for the previous row
-            var whichRow = []; // current row
-            var whichRowIndex = 0; // the index for the current row
-            var vertexCount = 0; // the total vertex count
-            var triCount = 0 // the total triangle count
-
-            // set up the vertex coord and normal arrays
-            for (var theta = -Math.PI / 2; theta <= Math.PI / 2 + EPSILON; theta += Math.PI / 24) {
-                var dz = c * Math.sin(theta) + z;
-                for (var phi = -Math.PI; phi <= Math.PI + EPSILON; phi += Math.PI / 12) {
-                    var dx = a * Math.cos(theta) * Math.cos(phi) + x;
-                    var dy = b * Math.cos(theta) * Math.sin(phi) + y;
-                    whichRow.push(dx, dy, dz);
-                    inputEllipsoids[whichSet].glVertices.push(dx, dy, dz); // put coords in set coord list
-                    inputEllipsoids[whichSet].texCoords.push(0.5 - phi / (2 * Math.PI), theta / (Math.PI) + 0.5); // put tex coords in set coord list
-                    vertexCount++;
-                }
-
-                // set up the triangle array
-                if (prevRowIndex >= 0) {
-                    var rowVertices = 24 + 1; // the number of vertices in a row
-                    var which = whichRowIndex;
-                    for (var prev = prevRowIndex; prev < prevRowIndex + rowVertices; prev++) {
-                        if (prev == prevRowIndex + rowVertices - 1) {
-                            // inputEllipsoids[whichSet].glTriangles.push(prevRowIndex); // coming in full circle
-                            inputEllipsoids[whichSet].glTriangles.push(prev, which, prevRowIndex, which, prevRowIndex, whichRowIndex);
-                        } else {
-                            // inputEllipsoids[whichSet].glTriangles.push(prev, which++); // put triangle indices in set list
-                            inputEllipsoids[whichSet].glTriangles.push(prev, which, prev + 1, which, prev + 1, which + 1);
-                        }
-
-                        which++;
-                        triCount += 2;
-                    }
-                }
-
-                // update ellipsoid row information
-                prevRowIndex = whichRowIndex;
-                whichRow = [];
-                whichRowIndex = vertexCount;
-            } // end for each ellipsoid row
-
-            inputEllipsoids[whichSet].tris = triCount; // number of triangles in this set
-        } // end for each ellipsoid
-    } // end if ellipsoids found
-}
-
-/* UPDATE & PROCESSING FUNCTIONS */
-
-// update snake
-function updateSnake() {
-
-}
-
-// process object buffers
-function processObjects() {
-    // process object buffers
-    for (var whichObj = 0; whichObj < numObjects; whichObj++) { // for each object
-        // send the vertex coords and normals to webGL
-        objects[whichObj].vtxBuffer = gl.createBuffer(); // init empty webgl set vertex coord buffer
-        gl.bindBuffer(gl.ARRAY_BUFFER, objects[whichObj].vtxBuffer); // activate that buffer
-        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(objects[whichObj].glVertices), gl.STATIC_DRAW); // data in
-
-        // send the texture coords to webGL
-        objects[whichObj].texBuffer = gl.createBuffer(); // init empty webgl set texture coord buffer
-        gl.bindBuffer(gl.ARRAY_BUFFER, objects[whichObj].texBuffer); // activate that buffer
-        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(objects[whichObj].texCoords), gl.STATIC_DRAW); // data in
-
-        // send the triangle indices to webGL
-        objects[whichObj].triBuffer = gl.createBuffer(); // init empty triangle index buffer
-        gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, objects[whichObj].triBuffer); // activate that buffer
-        gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(objects[whichObj].glTriangles), gl.STATIC_DRAW); // data in
-    } // end for objects
 }
 
 /* RENDER FUNCTIONS */
@@ -426,7 +486,6 @@ function renderObjects() {
         gl.vertexAttribPointer(vPosAttribLoc, 3, gl.FLOAT, false, 0, 0); // feed
         gl.bindBuffer(gl.ARRAY_BUFFER, object.texBuffer); // activate
         gl.vertexAttribPointer(vTexAttribLoc, 2, gl.FLOAT, false, 0, 0); // feed
-
         gl.uniform1i(texturizeULoc, object.texturize); // texturize object?
 
         if (object.texturize) {
@@ -435,7 +494,7 @@ function renderObjects() {
             gl.bindTexture(gl.TEXTURE_2D, object.texture); // bind the texture to texture unit 0
             gl.uniform1i(samplerULoc, 0); // tell the shader we bound the texture to texture unit 0
         } else {
-            gl.uniform3fv(texturizeULoc, object.color); // tell the shader the object color
+            gl.uniform3fv(colorULoc, object.color); // tell the shader the object color
         }
 
         // triangle buffer: activate and render
@@ -445,22 +504,30 @@ function renderObjects() {
 }
 
 // render frame
-function renderFrame() {
-    updateSnake(); // update snake
-    processObjects(); // process game objects
+function renderFrame(now) {
+    now *= 0.001; // convert the time to seconds
+    var dt = now - then;
+    then = now;
+
+    updateView(); // update view
+    updateSnakes(dt); // update snake
     renderObjects(); // render game objects
-    window.requestAnimationFrame(renderFrame); // set up frame render callback
+    requestAnimationFrame(renderFrame); // set up frame render callback
 }
 
-/* MAIN FUNCTION  */
+/* MAIN FUNCTIONS  */
+
+// starts (or restarts) the game
+function start() {
+    initWebGL(); // set up the webGL environment
+    initShaders(); // setup the webGL shaders
+    initSnakes(); // setup the snake
+    initObjects(); // setup food and other items
+
+    renderFrame(); // draw the objects using webGL
+}
 
 // here is where execution begins after window load
 function main() {
-    initWebGL(); // set up the webGL environment
-    initShaders(); // setup the webGL shaders
-    initView(); // setup the default view
-    initSnake(); // setup the snake
-    // initObjects(); // setup food and other items
-
-    renderFrame(); // draw the objects using webGL
+    start();
 }
