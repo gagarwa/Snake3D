@@ -7,7 +7,7 @@
 ## Notes & Assumptions
 
 ### Browser Support - Firefox
-This program was only thoroughly tested in Firefox.  The basic mechanics, however, should work in every browser.
+This program was only thoroughly tested in Firefox.  The basic mechanics, however, should work in every browser.  Also, please note that in order to work properly, this program may require **CORS** to be enabled in the browser.  In Google Chrome, you may also need to enable the "Allow File Access From Files" option.
 
 ### Viewing Perspective
 As in the previous assignments, viewing transforms are supported in this program.  However, the key combinations were changed to the original model transform key combinations in the third assignment.  To change the view, you can use the following key combinations:
