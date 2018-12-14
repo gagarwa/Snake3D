@@ -16,7 +16,7 @@ var grid = []; // the field grid
 
 /* SNAKE INIT DATA */
 var ctx; // the 2d context for scores
-const SPEED = 0.25; // the speed of the snakes (secs per unit)
+const SPEED = 0.2; // the speed of the snakes (secs per unit)
 const DIRECTION = { UP: 0, DOWN: 1, LEFT: 2, RIGHT: 3 }; // enumerated directions
 var playerSnake = {
     TEXTURE: BLUE_SNAKE_URL, // the snake texture
@@ -783,11 +783,14 @@ function updateSnake(snake) {
 
 // update snakes
 function updateSnakes(dt) {
+    var oneScale = false;
+    var scale = dt / SPEED;
     if (dt > SPEED) {
         var multi = Math.floor(dt / SPEED); // to prevent racing due to lag
         then += multi * SPEED;
-    } else
-        return;
+        oneScale = true;
+        scale = 1.0;
+    }
 
     var update = false; // update scores?
     if (autoSnake.automatic)
@@ -807,9 +810,12 @@ function updateSnakes(dt) {
         box.prev = box.cell; // the previous cell for additions
         while (box.next != null) {
             var temp = vec3.create();
-            vec3.sub(temp, box.next.cell.center, box.cell.center)
-            vec3.add(box.translation, box.translation, temp);
-            box.cell = box.next.cell;
+            vec3.sub(temp, box.next.cell.center, box.cell.center);
+            vec3.scale(temp, temp, scale);
+            vec3.add(temp, temp, box.cell.center);
+            vec3.sub(box.translation, temp, box.pos);
+            if (oneScale)
+                box.cell = box.next.cell;
             box = box.next;
         }
 

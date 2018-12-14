@@ -27,5 +27,5 @@ The player controls the green snake by using the arrow keys.
 ### Track & Display Score (1%)
 This program tracks and displays both the player's and the AI's (or second player's) score.  This can be found directly on the gameplay screen.
 
-### Two-Player Mode (3%)
+### Two-Player Mode (2%)
 This program supports two-player mode.  The second player can take control of the AI snake (gray snake) at any time by using the WASD keys.  Until then, and after the player is killed and the snake respawns, the snake is controlled by the system AI.
