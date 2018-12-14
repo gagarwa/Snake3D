@@ -8,25 +8,29 @@ const BLUE_SNAKE_URL = "blue-snake.jpg"; // blue snake skin image location
 const EPSILON = 0.000001; // error value for floating point numbers
 
 /* GRID INFORMATION */
-const DEPTH = -1.0; // the play area depth
+const DEPTH = -0.8; // the play area depth
 const CELL_SIZE = 0.05; // the size (height and width) of a cell in the grid
+const GRID_SIZE = 40; // the size of the grid
 const BORDER = { BOTTOM: -1, TOP: 1, LEFT: -1, RIGHT: 1 }; // the border for the grid or playing field
+var grid = []; // the field grid
 
 /* SNAKE INIT DATA */
-const SPEED = 1.0; // the speed of the snakes (units per sec)
+var ctx; // the 2d context for scores
+const SPEED = 0.25; // the speed of the snakes (secs per unit)
 const DIRECTION = { UP: 0, DOWN: 1, LEFT: 2, RIGHT: 3 }; // enumerated directions
 var playerSnake = {
     TEXTURE: BLUE_SNAKE_URL, // the snake texture
     MIN_SIZE: 8, // the min number of cells for the snake
-    START_POS: vec3.fromValues(0, 0, DEPTH), // the starting position of the snake
+    START_POS: [20, 20], // the starting position of the snake
     START_DIR: DIRECTION.LEFT // the starting direction of the snake
-}
+};
 var autoSnake = {
     TEXTURE: GRAY_SNAKE_URL, // the snake texture
     MIN_SIZE: 6, // the min number of cells for the snake
-    START_POS: vec3.fromValues(-0.5, 0.5, DEPTH), // the starting position of the snake
-    START_DIR: DIRECTION.RIGHT // the starting direction of the snake
-}
+    START_POS: [10, 30], // the starting position of the snake
+    START_DIR: DIRECTION.RIGHT, // the starting direction of the snake
+    automatic: true // run automatically?
+};
 var snakes = [playerSnake, autoSnake];
 
 /* WEBGL & GEOMETRY DATA */
@@ -40,7 +44,7 @@ var then = 0; // the last update time
 /* SHADER PARAMETER LOCATIONS */
 var vPosAttribLoc; // where to put position for vertex shader
 var vTexAttribLoc; // where to put texture coords for vertex shader
-var pvmMatrixULoc; // where to put project view matrix for vertex shader
+var pvmMatrixULoc; // where to put project view model matrix for vertex shader
 var texturizeULoc; // where to put texture? for fragment shader
 var colorULoc; // where to put color for fragment shader
 var samplerULoc; // where to put texture for fragment shader
@@ -57,6 +61,7 @@ const SIDE_CAMERA = {
     up: vec3.fromValues(0, 0, 1) // view up vector in world space
 };
 var camera = TOP_CAMERA; // the current view
+var pvMatrix; // the project view matrix
 
 /* HELPER FUNCTIONS */
 
@@ -71,15 +76,15 @@ function handleKeyDown(event) {
     switch (event.code) {
 
         // view change
-        case "KeyA": // translate view left, rotate left with shift
+        case "KeyK": // translate view left, rotate left with shift
             camera.center = vec3.add(camera.center, camera.center, vec3.scale(temp, viewRight, viewDelta));
             if (!event.getModifierState("Shift")) { camera.eye = vec3.add(camera.eye, camera.eye, vec3.scale(temp, viewRight, viewDelta)); }
             break;
-        case "KeyD": // translate view right, rotate right with shift
+        case "Semicolon": // translate view right, rotate right with shift
             camera.center = vec3.add(camera.center, camera.center, vec3.scale(temp, viewRight, -viewDelta));
             if (!event.getModifierState("Shift")) { camera.eye = vec3.add(camera.eye, camera.eye, vec3.scale(temp, viewRight, -viewDelta)); }
             break;
-        case "KeyS": // translate view backward, rotate up with shift
+        case "KeyL": // translate view backward, rotate up with shift
             if (event.getModifierState("Shift")) {
                 camera.center = vec3.add(camera.center, camera.center, vec3.scale(temp, camera.up, viewDelta));
                 camera.up = vec3.cross(camera.up, viewRight, vec3.subtract(lookAt, camera.center, camera.eye)); /* global side effect */
@@ -88,7 +93,7 @@ function handleKeyDown(event) {
                 camera.center = vec3.add(camera.center, camera.center, vec3.scale(temp, lookAt, -viewDelta));
             } // end if shift not pressed
             break;
-        case "KeyW": // translate view forward, rotate down with shift
+        case "KeyO": // translate view forward, rotate down with shift
             if (event.getModifierState("Shift")) {
                 camera.center = vec3.add(camera.center, camera.center, vec3.scale(temp, camera.up, -viewDelta));
                 camera.up = vec3.cross(camera.up, viewRight, vec3.subtract(lookAt, camera.center, camera.eye)); /* global side effect */
@@ -97,14 +102,14 @@ function handleKeyDown(event) {
                 camera.center = vec3.add(camera.center, camera.center, vec3.scale(temp, lookAt, viewDelta));
             } // end if shift not pressed
             break;
-        case "KeyQ": // translate view up, rotate counterclockwise with shift
+        case "KeyI": // translate view up, rotate counterclockwise with shift
             if (event.getModifierState("Shift")) { camera.up = vec3.normalize(camera.up, vec3.add(camera.up, camera.up, vec3.scale(temp, viewRight, -viewDelta))); }
             else {
                 camera.eye = vec3.add(camera.eye, camera.eye, vec3.scale(temp, camera.up, viewDelta));
                 camera.center = vec3.add(camera.center, camera.center, vec3.scale(temp, camera.up, viewDelta));
             } // end if shift not pressed
             break;
-        case "KeyE": // translate view down, rotate clockwise with shift
+        case "KeyP": // translate view down, rotate clockwise with shift
             if (event.getModifierState("Shift")) { camera.up = vec3.normalize(camera.up, vec3.add(camera.up, camera.up, vec3.scale(temp, viewRight, viewDelta))); }
             else {
                 camera.eye = vec3.add(camera.eye, camera.eye, vec3.scale(temp, camera.up, -viewDelta));
@@ -131,6 +136,32 @@ function handleKeyDown(event) {
         case "ArrowDown":
             if (playerSnake.dir == DIRECTION.RIGHT || playerSnake.dir == DIRECTION.LEFT) {
                 playerSnake.dir = DIRECTION.DOWN;
+            }
+            break;
+
+        // second player (auto-snake) snake controls
+        case "KeyD":
+            autoSnake.automatic = false;
+            if (autoSnake.dir == DIRECTION.UP || autoSnake.dir == DIRECTION.DOWN) {
+                autoSnake.dir = DIRECTION.RIGHT;
+            }
+            break;
+        case "KeyA":
+            autoSnake.automatic = false;
+            if (autoSnake.dir == DIRECTION.UP || autoSnake.dir == DIRECTION.DOWN) {
+                autoSnake.dir = DIRECTION.LEFT;
+            }
+            break;
+        case "KeyW":
+            autoSnake.automatic = false;
+            if (autoSnake.dir == DIRECTION.RIGHT || autoSnake.dir == DIRECTION.LEFT) {
+                autoSnake.dir = DIRECTION.UP;
+            }
+            break;
+        case "KeyS":
+            autoSnake.automatic = false;
+            if (autoSnake.dir == DIRECTION.RIGHT || autoSnake.dir == DIRECTION.LEFT) {
+                autoSnake.dir = DIRECTION.DOWN;
             }
             break;
 
@@ -185,7 +216,7 @@ function loadTexture(url) {
 }
 
 // creates the requested object type
-// expected obj properties: pos, axis, taxis, mtex
+// expected obj properties: pos, tex, axis (for snakes)
 function drawObject(obj, type) {
     // set up the vertex arrays, tri index array
     obj.glVertices = []; // flat coord list for webgl
@@ -194,12 +225,9 @@ function drawObject(obj, type) {
     obj.vtxCount = 0; // number of vertices in the object
     obj.triCount = 0; // number of triangles in the object
 
-    obj.collides = function (other) {
-        return vec3.dist(this.pos, other.pos) < EPSILON;
-    };
-
     // temp parameterization variables
-    var vtx = vec3.clone(obj.pos);
+    obj.translation = vec3.create(); // empty translation vector
+    var vtx = vec3.clone(obj.pos); // center position
 
     switch (type) {
         case OBJ_FORM.SPHERE:
@@ -210,7 +238,6 @@ function drawObject(obj, type) {
             const r = CELL_SIZE / 2;
 
             // temp information for ellipsoid rows
-            obj.texCoords = [0, 0]; // null texture coords
             var prevIndex = -1; // the index for the previous row
             var index = 0; // the index for the current row
 
@@ -240,29 +267,25 @@ function drawObject(obj, type) {
 
             break;
         case OBJ_FORM.BOX:
-            // temp parameterization variables
             vec3.add(vtx, vtx, vec3.fromValues(-CELL_SIZE / 2, -CELL_SIZE / 2, 0));
-            const axis = obj.axis;
-            const cx = (axis == 0) ? 0 : CELL_SIZE;
-            const cy = (axis == 0) ? CELL_SIZE : 0;
 
             // Front Face
-            var tex = obj.mtex.front; // map to front texture
-            obj.glVertices.push(vtx[0] + cx, vtx[1] + cy, vtx[2] + CELL_SIZE);
-            obj.glVertices.push(vtx[0] + cx, vtx[1] + cy, vtx[2]);
+            var tex = obj.tex.front; // map to front texture
+            obj.glVertices.push(vtx[0], vtx[1], vtx[2] + CELL_SIZE); // top front
+            obj.glVertices.push(vtx[0], vtx[1] + CELL_SIZE, vtx[2] + CELL_SIZE); // top back
             obj.vtxCount += 2;
             obj.texCoords.push(tex, 0, tex, 0.25);
-            obj.glTriangles.push(0, 1, 3, 2); // first indices, front face
+            obj.glTriangles.push(1, 0, 3, 2); // first indices, front face
             obj.triCount += 2;
 
             // Cylinder Face
-            tex = obj.mtex.right; // map to right texture
+            tex = obj.tex.left; // map to left texture
             for (var t = 0; t < 2; t++) {
-                obj.glVertices.push(vtx[0], vtx[1], vtx[2]);
-                obj.glVertices.push(vtx[0], vtx[1], vtx[2] + CELL_SIZE);
-                obj.glVertices.push(vtx[0] + cx, vtx[1] + cy, vtx[2] + CELL_SIZE);
-                obj.glVertices.push(vtx[0] + cx, vtx[1] + cy, vtx[2]);
-                obj.glVertices.push(vtx[0], vtx[1], vtx[2]);
+                obj.glVertices.push(vtx[0], vtx[1], vtx[2]); // bottom front
+                obj.glVertices.push(vtx[0], vtx[1] + CELL_SIZE, vtx[2]); // bottom back
+                obj.glVertices.push(vtx[0], vtx[1] + CELL_SIZE, vtx[2] + CELL_SIZE); // top back
+                obj.glVertices.push(vtx[0], vtx[1], vtx[2] + CELL_SIZE); // top front
+                obj.glVertices.push(vtx[0], vtx[1], vtx[2]); // bottom front
                 obj.vtxCount += 5;
 
                 for (var whichVtx = 0; whichVtx < 5; whichVtx++) {
@@ -270,8 +293,8 @@ function drawObject(obj, type) {
                 }
 
                 if (t == 0) {
-                    vtx[axis] = obj.taxis - CELL_SIZE / 2; // change to second position
-                    tex = obj.mtex.left; // map to left texture
+                    vtx[0] += CELL_SIZE;
+                    tex = obj.tex.right; // map to right texture
                     var index = obj.vtxCount; // the index for the second layer
                 }
             }
@@ -283,21 +306,21 @@ function drawObject(obj, type) {
             }
 
             // Back Face
-            tex = obj.mtex.back; // map to back texture
-            obj.glVertices.push(vtx[0], vtx[1], vtx[2] + CELL_SIZE); // index 12
-            obj.glVertices.push(vtx[0] + cx, vtx[1] + cy, vtx[2] + CELL_SIZE); // index 13
+            tex = obj.tex.back; // map to back texture
+            obj.glVertices.push(vtx[0], vtx[1] + CELL_SIZE, vtx[2]); // bottom back
+            obj.glVertices.push(vtx[0], vtx[1] + CELL_SIZE, vtx[2] + CELL_SIZE); // top back
             obj.vtxCount += 2;
-            obj.texCoords.push(tex, 0.75, tex, 1.0);
+            obj.texCoords.push(tex, 1.0, tex, 0.75);
             obj.glTriangles.push(11, 10, 12, 13); // last indices, back face
             break;
         case OBJ_FORM.FLAT:
             vec3.add(vtx, vtx, vec3.fromValues(-CELL_SIZE / 2, -CELL_SIZE / 2, 0));
-            var tex = obj.mtex.right; // map to right texture
+            var tex = obj.tex.left; // map to left texture
             obj.glVertices.push(vtx[0], vtx[1], vtx[2]);
             obj.glVertices.push(vtx[0] + CELL_SIZE, vtx[1], vtx[2]);
             obj.texCoords.push(tex, 0, tex, 1);
 
-            tex = obj.mtex.left; // map to left texture
+            tex = obj.tex.right; // map to right texture
             obj.glVertices.push(vtx[0], vtx[1] + CELL_SIZE, vtx[2]);
             obj.glVertices.push(vtx[0] + CELL_SIZE, vtx[1] + CELL_SIZE, vtx[2]);
             obj.texCoords.push(tex, 0, tex, 1);
@@ -316,15 +339,67 @@ function processObject(obj) {
     gl.bindBuffer(gl.ARRAY_BUFFER, obj.vtxBuffer); // activate that buffer
     gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(obj.glVertices), gl.STATIC_DRAW); // data in
 
-    // send the texture coords to webGL
-    obj.texBuffer = gl.createBuffer(); // init empty webgl set texture coord buffer
-    gl.bindBuffer(gl.ARRAY_BUFFER, obj.texBuffer); // activate that buffer
-    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(obj.texCoords), gl.STATIC_DRAW); // data in
+    if (obj.texturize) {
+        // send the texture coords to webGL
+        obj.texBuffer = gl.createBuffer(); // init empty webgl set texture coord buffer
+        gl.bindBuffer(gl.ARRAY_BUFFER, obj.texBuffer); // activate that buffer
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(obj.texCoords), gl.STATIC_DRAW); // data in
+    }
 
     // send the triangle indices to webGL
     obj.triBuffer = gl.createBuffer(); // init empty triangle index buffer
     gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, obj.triBuffer); // activate that buffer
     gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(obj.glTriangles), gl.STATIC_DRAW); // data in
+}
+
+/* ADD OBJECT FUNCTIONS */
+
+// create a snake box
+function createSnakeBox(snake) {
+    var box = {}; // new box object
+    box.cell = snake.tail.prev;
+
+    // init
+    box.type = OBJ_TYPE.SOLID;
+    box.texturize = true;
+    box.texture = snake.tail.texture;
+    box.pos = vec3.clone(box.cell.center); // the current position
+    box.tex = {
+        front: snake.tex,
+        left: snake.tex + 0.1,
+        right: snake.tex + 0.2,
+        back: snake.tex + 0.3
+    }; // the texture map
+
+    box.next = snake.tail; // the next box
+    snake.tail = box; // the tail box
+
+    drawObject(box, OBJ_FORM.BOX);
+    processObject(box);
+    objects[numObjects] = box;
+    numObjects++;
+
+    snake.tex = (snake.tex < 0.7 - EPSILON) ? snake.tex + 0.1 : 0.0;
+}
+
+// create a snake food object
+function createSnakeFood() {
+    var food = {}; // the food object
+    var t = 1 + Math.floor(Math.random() * GRID_SIZE);
+    var s = 1 + Math.floor(Math.random() * GRID_SIZE);
+    food.cell = grid[t][s];
+    autoSnake.foodVision = food.cell; // special AI snake vision
+
+    // init
+    food.type = OBJ_TYPE.FOOD;
+    food.texturize = false;
+    food.color = vec3.fromValues(0, 0, 1);
+    food.pos = vec3.clone(food.cell.center); // the object position
+
+    drawObject(food, OBJ_FORM.SPHERE);
+    processObject(food);
+    objects[numObjects] = food;
+    numObjects++;
 }
 
 /* INIT FUNCTIONS */
@@ -353,6 +428,21 @@ function initWebGL() {
     catch (e) {
         console.log(e);
     } // end catch
+}
+
+// setup the scoring interface
+function initInterface() {
+    var canvas = document.getElementById("myImageCanvas"); // create an image canvas
+    ctx = canvas.getContext("2d"); // get a 2d context from it
+    ctx.font = "24px sans-serif";
+
+    ctx.textAlign = "right";
+    ctx.fillStyle = "blue";
+    ctx.fillText("P1 Blue: " + 0, 132, 30);
+
+    ctx.textAlign = "left";
+    ctx.fillStyle = "gray";
+    ctx.fillText("P2 Gray: " + 0, 375, 500);
 }
 
 // setup the webGL shaders
@@ -427,7 +517,6 @@ function initShaders() {
                 vPosAttribLoc = gl.getAttribLocation(shaderProgram, "aVertexPosition"); // ptr to vertex pos attrib
                 gl.enableVertexAttribArray(vPosAttribLoc); // connect attrib to array
                 vTexAttribLoc = gl.getAttribLocation(shaderProgram, "aTextureCoord"); // ptr to texture coord attrib
-                gl.enableVertexAttribArray(vTexAttribLoc); // connect attrib to array
 
                 // locate uniforms
                 pvmMatrixULoc = gl.getUniformLocation(shaderProgram, "upvmMatrix"); // ptr to pvmmat
@@ -443,66 +532,109 @@ function initShaders() {
     } // end catch
 }
 
-// setup (or reset) the snake object
+// setup the grid
+function initGrid() {
+    var dt = BORDER.BOTTOM - CELL_SIZE / 2;
+    var ds = BORDER.LEFT - CELL_SIZE / 2;
+    for (var t = 0; t < GRID_SIZE + 2; t++) {
+        var y = t * CELL_SIZE + dt;
+        var row = [];
+        for (var s = 0; s < GRID_SIZE + 2; s++) {
+            var x = s * CELL_SIZE + ds;
+            var cell = {};
+            row.push(cell);
+            cell.center = vec3.fromValues(x, y, DEPTH);
+            cell.x = s; // the x value
+            cell.y = t; // the y value
+        }
+        grid[t] = row;
+    }
+
+    // directions to adjacent cells
+    for (var t = 1; t < GRID_SIZE + 1; t++) {
+        for (var s = 1; s < GRID_SIZE + 1; s++) {
+            var cell = grid[t][s];
+            cell.right = grid[t][s + 1];
+            cell.left = grid[t][s - 1];
+            cell.top = grid[t + 1][s];
+            cell.bottom = grid[t - 1][s];
+
+            cell.getAdjacent = function (dir) {
+                switch (dir) {
+                    case DIRECTION.UP:
+                        return this.top;
+                    case DIRECTION.DOWN:
+                        return this.bottom;
+                    case DIRECTION.LEFT:
+                        return this.left;
+                    case DIRECTION.RIGHT:
+                        return this.right;
+                }
+            };
+
+            cell.getOpposite = function (dir) {
+                switch (dir) {
+                    case DIRECTION.UP:
+                        return this.bottom;
+                    case DIRECTION.DOWN:
+                        return this.top;
+                    case DIRECTION.LEFT:
+                        return this.right;
+                    case DIRECTION.RIGHT:
+                        return this.left;
+                }
+            };
+        }
+    }
+}
+
+// setup a snake
 function initSnake(snake) {
-    snake.dir = snake.START_DIR; // the starting direction
+    // init snake
+    var i = snake.START_POS;
+    snake.pos = grid[i[1]][i[0]]; // the starting position
+    snake.dir = snake.START_DIR; // the snake's direction of motion
+    snake.tex = 0; // the starting texture layer
+    snake.score = 0; // the snake's score
+
+    if (snake == autoSnake)
+        autoSnake.automatic = true; // reset auto-snake
 
     // snake parameters
     const texture = loadTexture(snake.TEXTURE); // load snake skin texture
-    const axis = (snake.dir == DIRECTION.LEFT || snake.dir == DIRECTION.RIGHT) ? 0 : 1; // the axis of motion
-    const dir = (snake.dir == DIRECTION.DOWN || snake.dir == DIRECTION.LEFT) ? -1 : 1; // the direction of motion (pos or neg)
-    var pos = vec3.clone(snake.START_POS); // the starting position
-    var tex = 0.0;
+    var cell = snake.pos;
+    var next = null; // the lead box (next box)
 
     for (var whichBox = 0; whichBox < snake.MIN_SIZE; whichBox++) {
         var box = {}; // new box object
+        box.cell = cell;
+        if (whichBox == 0)
+            snake.head = box; // the head box
 
         // init
         box.type = OBJ_TYPE.SOLID;
         box.texturize = true;
         box.texture = texture;
-        box.pos = vec3.clone(pos); // the current position
-        box.axis = axis; // the axis of movement
-        box.taxis = pos[axis] - (dir * CELL_SIZE); // the next layer, based on axis
-        box.mtex = {
-            front: tex,
-            right: tex + 0.1,
-            left: tex + 0.2,
-            back: tex + 0.3
+        box.pos = vec3.clone(box.cell.center); // the current position
+        box.tex = {
+            front: snake.tex,
+            left: snake.tex + 0.1,
+            right: snake.tex + 0.2,
+            back: snake.tex + 0.3
         }; // the texture map
 
-        var temp = vec3.clone(pos);
-        temp[axis] += dir * CELL_SIZE;
-        box.dir = snake.dir;
-        box.next = temp; // the next position
+        box.next = next; // the next box
+        snake.tail = box; // the tail box
 
         drawObject(box, OBJ_FORM.BOX);
         processObject(box);
         objects[numObjects] = box;
         numObjects++;
 
-        tex = (tex < 0.7 - EPSILON) ? tex + 0.1 : 0.0;
-        pos[axis] -= dir * CELL_SIZE;
+        snake.tex = (snake.tex < 0.7 - EPSILON) ? snake.tex + 0.1 : 0.0;
+        cell = cell.getOpposite(snake.dir);
+        next = box;
     }
-}
-
-// create (or reset) the snake food object
-function initSnakeFood() {
-    var food = {}; // the food object
-
-    // init
-    food.type = OBJ_TYPE.FOOD;
-    food.texturize = false;
-    food.color = vec3.fromValues(0, 0, 1);
-
-    var dx = (Math.floor(Math.random() * 39) - 19) * CELL_SIZE;
-    var dy = (Math.floor(Math.random() * 39) - 19) * CELL_SIZE;
-    food.pos = vec3.fromValues(dx, dy, DEPTH); // the object position
-
-    drawObject(food, OBJ_FORM.SPHERE);
-    processObject(food);
-    objects[numObjects] = food;
-    numObjects++;
 }
 
 // setup the snakes
@@ -515,31 +647,22 @@ function initSnakes() {
 
 // setup food and other items
 function initObjects() {
-    // create snake food
-    initSnakeFood();
+    createSnakeFood(); // create initial snake food
 
     // brick wall parameters
     var texture = loadTexture(BRICK_URL); // load brick texture
-    var axis = 0; // the axis to draw on
-    var dir = 1; // the direction to draw in (pos or neg)
-    var pos = vec3.fromValues(BORDER.LEFT, BORDER.BOTTOM, DEPTH); // the starting position
     var tex = 0.0;
-    var draw = true; // draw border
 
-    while (draw) {
-        var box = {}; // new box object
-
+    var init = function (box) {
         // init
         box.type = OBJ_TYPE.SOLID;
         box.texturize = true;
         box.texture = texture;
-        box.pos = vec3.clone(pos); // the current position
-        box.axis = 0; // the axis to draw on
-        box.taxis = pos[0] - CELL_SIZE; // the next layer, based on axis
-        box.mtex = {
+        box.pos = vec3.clone(box.cell.center); // the current position
+        box.tex = {
             front: tex,
-            right: tex + 0.25,
-            left: tex + 0.50,
+            left: tex + 0.25,
+            right: tex + 0.50,
             back: tex + 0.75
         }; // the texture map
 
@@ -549,63 +672,50 @@ function initObjects() {
         numObjects++;
 
         tex = (tex < 0.25 - EPSILON) ? tex + 0.25 : 0.0;
-        pos[axis] += dir * CELL_SIZE;
+    }
 
-        switch (axis) {
-            case 0:
-                switch (dir) {
-                    case 1:
-                        if (pos[axis] > BORDER.RIGHT - EPSILON) {
-                            axis = 1;
-                        }
-                        break;
-                    case -1:
-                        if (pos[axis] < BORDER.LEFT + EPSILON) {
-                            axis = 1;
-                        }
-                        break;
-                }
-                break;
-            case 1:
-                switch (dir) {
-                    case 1:
-                        if (pos[axis] > BORDER.TOP - EPSILON) {
-                            axis = 0;
-                            dir = -1;
-                        }
-                        break;
-                    case -1:
-                        if (pos[axis] < BORDER.BOTTOM + EPSILON)
-                            draw = false;
-                        break;
-                }
-                break;
-        }
+    for (var s = 0; s < GRID_SIZE + 2; s++) {
+        var box = {}; // new box object
+        box.cell = grid[0][s];
+        init(box);
+
+        var box = {}; // new box object
+        box.cell = grid[GRID_SIZE + 1][s];
+        init(box);
+    }
+
+    for (var t = 1; t < GRID_SIZE + 1; t++) {
+        var box = {}; // new box object
+        box.cell = grid[t][0];
+        init(box);
+
+        var box = {}; // new box object
+        box.cell = grid[t][GRID_SIZE + 1];
+        init(box);
     }
 
     // green grass parameters
     var texture = loadTexture(GRASS_URL); // load grass texture
 
-    for (var dx = BORDER.LEFT; dx < BORDER.RIGHT - EPSILON; dx += CELL_SIZE) {
-        for (var dy = BORDER.BOTTOM; dy < BORDER.TOP - EPSILON; dy += CELL_SIZE) {
-            var box = {}; // new box object
+    for (var t = 1; t < GRID_SIZE + 1; t++) {
+        for (var s = 1; s < GRID_SIZE + 1; s++) {
+            var rec = {}; // new rectangle object
+            rec.cell = grid[t][s];
 
             // init
-            box.type = OBJ_TYPE.LAND;
-            box.texturize = true;
-            box.texture = texture;
-            box.pos = vec3.fromValues(dx, dy, DEPTH); // the current position
-            box.mtex = {
-                right: 0,
-                left: 1,
+            rec.type = OBJ_TYPE.LAND;
+            rec.texturize = true;
+            rec.texture = texture;
+            rec.pos = vec3.clone(rec.cell.center); // the current position
+            rec.tex = {
+                left: 0,
+                right: 1,
             }; // the texture map
 
-            drawObject(box, OBJ_FORM.FLAT);
-            processObject(box);
-            objects[numObjects] = box;
+            drawObject(rec, OBJ_FORM.FLAT);
+            processObject(rec);
+            objects[numObjects] = rec;
             numObjects++;
-
-            pos[axis] += dir * CELL_SIZE;
         }
     }
 }
@@ -616,20 +726,154 @@ function initObjects() {
 function updateView() {
     var pMatrix = mat4.create(); // projection matrix
     var vMatrix = mat4.create(); // view matrix
-    pvMatrix = mat4.create(); // projection * view matrix
+    pvMatrix = mat4.create(); // proj * view matrix
+
 
     // set up projection and view
     mat4.perspective(pMatrix, 0.5 * Math.PI, 1, 0.1, 10); // create projection matrix
     mat4.lookAt(vMatrix, camera.eye, camera.center, camera.up); // create view matrix
     mat4.multiply(pvMatrix, pvMatrix, pMatrix); // projection
     mat4.multiply(pvMatrix, pvMatrix, vMatrix); // projection * view
+}
 
-    gl.uniformMatrix4fv(pvmMatrixULoc, false, pvMatrix); // pass in the pv matrix
+// auto update snake
+// expects auto-snake for auto-snake controls
+function updateSnake(snake) {
+    var vec = vec3.create();
+    vec3.sub(vec, snake.foodVision.center, snake.head.cell.center);
+    vec3.normalize(vec, vec);
+
+    var dir; // the desired direction
+    if (Math.abs(vec[0]) > Math.abs(vec[1])) { // x > y
+        if (vec[0] < 0)
+            dir = DIRECTION.LEFT;
+        else
+            dir = DIRECTION.RIGHT;
+    } else { // y > x
+        if (vec[1] < 0)
+            dir = DIRECTION.DOWN;
+        else
+            dir = DIRECTION.UP;
+    }
+
+    // directional controls (to prevent self-mutilation)
+    switch (dir) {
+        case DIRECTION.RIGHT:
+            if (snake.dir == DIRECTION.UP || snake.dir == DIRECTION.DOWN) {
+                snake.dir = DIRECTION.RIGHT;
+            }
+            break;
+        case DIRECTION.LEFT:
+            if (snake.dir == DIRECTION.UP || snake.dir == DIRECTION.DOWN) {
+                snake.dir = DIRECTION.LEFT;
+            }
+            break;
+        case DIRECTION.UP:
+            if (snake.dir == DIRECTION.RIGHT || snake.dir == DIRECTION.LEFT) {
+                snake.dir = DIRECTION.UP;
+            }
+            break;
+        case DIRECTION.DOWN:
+            if (snake.dir == DIRECTION.RIGHT || snake.dir == DIRECTION.LEFT) {
+                snake.dir = DIRECTION.DOWN;
+            }
+            break;
+    }
 }
 
 // update snakes
 function updateSnakes(dt) {
+    if (dt > SPEED) {
+        var multi = Math.floor(dt / SPEED); // to prevent racing due to lag
+        then += multi * SPEED;
+    } else
+        return;
 
+    var update = false; // update scores?
+    if (autoSnake.automatic)
+        updateSnake(autoSnake); // update AI snake
+
+    for (var whichSnake = 0; whichSnake < snakes.length; whichSnake++) {
+        var snake = snakes[whichSnake];
+
+        // update snake direction
+        snake.head.next = {
+            cell: snake.head.cell.getAdjacent(snake.dir),
+            next: null
+        };
+
+        // update positions
+        var box = snake.tail;
+        box.prev = box.cell; // the previous cell for additions
+        while (box.next != null) {
+            var temp = vec3.create();
+            vec3.sub(temp, box.next.cell.center, box.cell.center)
+            vec3.add(box.translation, box.translation, temp);
+            box.cell = box.next.cell;
+            box = box.next;
+        }
+
+        // check collisions
+        var toDestroy = []; // objects to destroy
+        var remake = false; // remake snake?
+        var head = snake.head;
+        for (var whichObj = 0; whichObj < numObjects; whichObj++) {
+            var obj = objects[whichObj];
+            if (obj == head)
+                continue; // ignore self-collision
+
+            switch (obj.type) {
+                case OBJ_TYPE.FOOD:
+                    if (head.cell == obj.cell) { // collision
+                        update = true;
+                        snake.score++; // update score
+                        createSnakeBox(snake);
+                        createSnakeFood();
+                        toDestroy.push(whichObj);
+                    }
+                    break;
+                case OBJ_TYPE.SOLID:
+                    if (head.cell == obj.cell) { // collision
+                        remake = true; // resurrect snake
+                        update = true; // update score
+
+                        var box = snake.tail;
+                        while (box.next != null) {
+                            var i = objects.indexOf(box);
+                            toDestroy.push(i);
+                            box = box.next;
+                        }
+                    }
+                    break;
+            }
+        }
+
+        // destroy old objects
+        if (toDestroy.length > 0) {
+            toDestroy.sort(function (a, b) {
+                return b - a;
+            });
+            toDestroy.forEach(function (e) {
+                objects.splice(e, 1);
+            });
+
+            numObjects -= toDestroy.length;
+            if (remake)
+                initSnake(snake);
+        }
+    }
+
+    // update scores
+    if (update) {
+        ctx.clearRect(0, 0, 512, 512);
+        ctx.textAlign = "right";
+        ctx.fillStyle = "blue";
+        ctx.fillText("P1 Blue: " + playerSnake.score, 132, 30);
+
+        ctx.textAlign = "left";
+        ctx.fillStyle = "gray";
+        ctx.fillText("P2 Gray: " + autoSnake.score, 375, 500);
+    }
 }
 
 /* RENDER FUNCTIONS */
@@ -645,18 +889,28 @@ function renderObjects() {
         // vertex buffer: activate and feed into vertex shader
         gl.bindBuffer(gl.ARRAY_BUFFER, object.vtxBuffer); // activate
         gl.vertexAttribPointer(vPosAttribLoc, 3, gl.FLOAT, false, 0, 0); // feed
-        gl.bindBuffer(gl.ARRAY_BUFFER, object.texBuffer); // activate
-        gl.vertexAttribPointer(vTexAttribLoc, 2, gl.FLOAT, false, 0, 0); // feed
         gl.uniform1i(texturizeULoc, object.texturize); // texturize object?
 
         if (object.texturize) {
+            gl.bindBuffer(gl.ARRAY_BUFFER, object.texBuffer); // activate
+            gl.vertexAttribPointer(vTexAttribLoc, 2, gl.FLOAT, false, 0, 0); // feed
+            gl.enableVertexAttribArray(vTexAttribLoc); // connect attrib to array
+
             // texture: feed to the fragment shader
             gl.activeTexture(gl.TEXTURE0); // tell webGL we want to affect texture unit 0
             gl.bindTexture(gl.TEXTURE_2D, object.texture); // bind the texture to texture unit 0
             gl.uniform1i(samplerULoc, 0); // tell the shader we bound the texture to texture unit 0
         } else {
             gl.uniform3fv(colorULoc, object.color); // tell the shader the object color
+            gl.disableVertexAttribArray(vTexAttribLoc); // disconnect attrib from array
         }
+
+        // object translation
+        var mMatrix = mat4.create(); // model matrix
+        var pvmMatrix = mat4.create(); // proj * view * model matrix
+        mat4.fromTranslation(mMatrix, object.translation);
+        mat4.multiply(pvmMatrix, pvMatrix, mMatrix); // projection * view * model
+        gl.uniformMatrix4fv(pvmMatrixULoc, false, pvmMatrix); // pass in the pvm matrix
 
         // triangle buffer: activate and render
         gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, object.triBuffer); // activate
@@ -668,27 +922,23 @@ function renderObjects() {
 function renderFrame(now) {
     now *= 0.001; // convert the time to seconds
     var dt = now - then;
-    then = now;
 
-    updateSnakes(dt); // update snake
     updateView(); // update view
+    updateSnakes(dt); // update snake
     renderObjects(); // render game objects
     requestAnimationFrame(renderFrame); // set up frame render callback
 }
 
-/* MAIN FUNCTIONS  */
-
-// starts (or restarts) the game
-function start() {
-    initWebGL(); // set up the webGL environment
-    initShaders(); // setup the webGL shaders
-    initSnakes(); // setup the snake
-    initObjects(); // setup food and other items
-
-    renderFrame(); // draw the objects using webGL
-}
+/* MAIN FUNCTION  */
 
 // here is where execution begins after window load
 function main() {
-    start(); // start game
+    initWebGL(); // set up the webGL environment
+    initInterface(); // setup the scoring interface
+    initShaders(); // setup the webGL shaders
+    initGrid(); // setup the play grid
+    initSnakes(); // setup the snake
+    initObjects(); // setup food and other items
+
+    requestAnimationFrame(renderFrame); // render frame
 }

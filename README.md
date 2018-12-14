@@ -6,25 +6,26 @@
 
 ## Notes & Assumptions
 
-### Part 1: Texturing
-The texture to image mapping is upside down and/or backwards, which I corrected by flipping the image.
+### Browser Support - Firefox
+This program was only thoroughly tested in Firefox.  The basic mechanics, however, should work in every browser.
 
-### Part 2: Light & Texture Blending
-I performed three texture and lighting modulations:
-1. Texture Only
-2. Texture & Lighting (for color only)
-3. Texture & Lighting (for color and alpha)
+### Viewing Perspective
+As in the previous assignments, viewing transforms are supported in this program.  However, the key combinations were changed to the original model transform key combinations in the third assignment.  To change the view, you can use the following key combinations:
 
-### Part 3: Transparency
-I use 1.0 as the alpha border between transparent vs. opaque objects.  So, all translucent objects are considered transparent.
+1. k and ; — translate view left and right along view X
+2. o and l — translate view forward and backward along view Z
+3. i and p — translate view up and down along view Y
+4. K and : — rotate view left and right around view Y (yaw)
+5. O and L — rotate view forward and backward around view X (pitch)
+6. I and P — rotate view clockwise and counterclockwise around view Z (roll)
 
-### Part 4: Depth Sorting
-I do not support changes in triangle depth due to rotation, only translation.
+### Player Snake
+The player controls the green snake by using the arrow keys.
 
 ## Extra Credit
 
-### Render Ellipsoids (1%)
-My program renders ellipsoids (enabled by default).  The texture mapping for ellipsoids may not appear smooth due to selecting a low resolution parameterization for my algorithm (for the sake of efficiency).  The texture mapping is also slightly different than the TA's version due to my implementation.
+### Track & Display Score (1%)
+This program tracks and displays both the player's and the AI's (or second player's) score.  This can be found directly on the gameplay screen.
 
-### Transparent Textures (1%)
-My program supports transparent textures.
+### Two-Player Mode (3%)
+This program supports two-player mode.  The second player can take control of the AI snake (gray snake) at any time by using the WASD keys.  Until then, and after the player is killed and the snake respawns, the snake is controlled by the system AI.
