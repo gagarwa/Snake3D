@@ -17,7 +17,7 @@ The player controls the green snake by using the arrow keys.
 ### Two-Player Mode
 This program supports two-player mode.  The second player can take control of the AI snake (gray snake) at any time by using the WASD keys.  Until then, and after the player is killed and the snake respawns, the snake is controlled by the AI system.
 
-### Score
+### Scoring System
 This program tracks and displays both the player's and the AI's (or second player's) score.  The score is reset for the respective player when their snake respawns.
 
 ### Viewing Perspective
@@ -31,4 +31,4 @@ In this game, you can transform the view to better fit your playing style.  To c
 6. I and P — rotate view clockwise and counterclockwise around view Z (roll)
 
 ## Credits
-This program was originally written for the *Computer Graphics (CSC 461)* course at *NC State University*.  The project description was provided by Professor Benjamin Watson.
+This program was originally written for the *Computer Graphics (CSC 461)* course at *NC State University*.  The project description was provided by [Professor Benjamin Watson](https://watson.csc.ncsu.edu/).
