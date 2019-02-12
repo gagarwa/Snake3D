@@ -1,8 +1,17 @@
-#myWebGLCanvas {
-    position: absolute;
-    left: 0px;
-    top: 0px;
-    z-index: 0;
+body {
+    background-color: bisque;
+}
+
+.center {
+    text-align: center;
+    overflow: hidden;
+}
+
+.canvas {
+    position: relative;
+    margin: 0 auto;
+    width: 1400px;
+    height: 700px;
 }
 
 #myImageCanvas {
@@ -10,4 +19,11 @@
     left: 0px;
     top: 0px;
     z-index: 10;
+}
+
+#myWebGLCanvas {
+    position: absolute;
+    left: 0px;
+    top: 0px;
+    z-index: 0;
 }

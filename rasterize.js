@@ -10,8 +10,8 @@ const EPSILON = 0.000001; // error value for floating point numbers
 /* GRID INFORMATION */
 const DEPTH = -0.8; // the play area depth
 const CELL_SIZE = 0.05; // the size (height and width) of a cell in the grid
-const GRID_SIZE = 40; // the size of the grid
-const BORDER = { BOTTOM: -1, TOP: 1, LEFT: -1, RIGHT: 1 }; // the border for the grid or playing field
+const GRID_SIZE = { WIDTH: 80, HEIGHT: 40 }; // the size of the grid
+const BORDER = { BOTTOM: -1, TOP: 1, LEFT: -2, RIGHT: 2 }; // the border for the grid or playing field
 var grid = []; // the field grid
 
 /* SNAKE INIT DATA */
@@ -385,8 +385,8 @@ function createSnakeBox(snake) {
 // create a snake food object
 function createSnakeFood() {
     var food = {}; // the food object
-    var t = 1 + Math.floor(Math.random() * GRID_SIZE);
-    var s = 1 + Math.floor(Math.random() * GRID_SIZE);
+    var t = 1 + Math.floor(Math.random() * GRID_SIZE.HEIGHT);
+    var s = 1 + Math.floor(Math.random() * GRID_SIZE.WIDTH);
     food.cell = grid[t][s];
     autoSnake.foodVision = food.cell; // special AI snake vision
 
@@ -438,11 +438,11 @@ function initInterface() {
 
     ctx.textAlign = "right";
     ctx.fillStyle = "blue";
-    ctx.fillText("P1 Blue: " + 0, 132, 30);
+    ctx.fillText("P1 Blue: " + 0, 200, 36);
 
     ctx.textAlign = "left";
     ctx.fillStyle = "gray";
-    ctx.fillText("P2 Gray: " + 0, 375, 500);
+    ctx.fillText("P2 Gray: " + 0, 1200, 680);
 }
 
 // setup the webGL shaders
@@ -536,10 +536,10 @@ function initShaders() {
 function initGrid() {
     var dt = BORDER.BOTTOM - CELL_SIZE / 2;
     var ds = BORDER.LEFT - CELL_SIZE / 2;
-    for (var t = 0; t < GRID_SIZE + 2; t++) {
+    for (var t = 0; t < GRID_SIZE.HEIGHT + 2; t++) {
         var y = t * CELL_SIZE + dt;
         var row = [];
-        for (var s = 0; s < GRID_SIZE + 2; s++) {
+        for (var s = 0; s < GRID_SIZE.WIDTH + 2; s++) {
             var x = s * CELL_SIZE + ds;
             var cell = {};
             row.push(cell);
@@ -551,8 +551,8 @@ function initGrid() {
     }
 
     // directions to adjacent cells
-    for (var t = 1; t < GRID_SIZE + 1; t++) {
-        for (var s = 1; s < GRID_SIZE + 1; s++) {
+    for (var t = 1; t < GRID_SIZE.HEIGHT + 1; t++) {
+        for (var s = 1; s < GRID_SIZE.WIDTH + 1; s++) {
             var cell = grid[t][s];
             cell.right = grid[t][s + 1];
             cell.left = grid[t][s - 1];
@@ -674,31 +674,31 @@ function initObjects() {
         tex = (tex < 0.25 - EPSILON) ? tex + 0.25 : 0.0;
     }
 
-    for (var s = 0; s < GRID_SIZE + 2; s++) {
+    for (var s = 0; s < GRID_SIZE.WIDTH + 2; s++) {
         var box = {}; // new box object
         box.cell = grid[0][s];
         init(box);
 
         var box = {}; // new box object
-        box.cell = grid[GRID_SIZE + 1][s];
+        box.cell = grid[GRID_SIZE.HEIGHT + 1][s];
         init(box);
     }
 
-    for (var t = 1; t < GRID_SIZE + 1; t++) {
+    for (var t = 1; t < GRID_SIZE.HEIGHT + 1; t++) {
         var box = {}; // new box object
         box.cell = grid[t][0];
         init(box);
 
         var box = {}; // new box object
-        box.cell = grid[t][GRID_SIZE + 1];
+        box.cell = grid[t][GRID_SIZE.WIDTH + 1];
         init(box);
     }
 
     // green grass parameters
     var texture = loadTexture(GRASS_URL); // load grass texture
 
-    for (var t = 1; t < GRID_SIZE + 1; t++) {
-        for (var s = 1; s < GRID_SIZE + 1; s++) {
+    for (var t = 1; t < GRID_SIZE.HEIGHT + 1; t++) {
+        for (var s = 1; s < GRID_SIZE.WIDTH + 1; s++) {
             var rec = {}; // new rectangle object
             rec.cell = grid[t][s];
 
@@ -730,7 +730,7 @@ function updateView() {
 
 
     // set up projection and view
-    mat4.perspective(pMatrix, 0.5 * Math.PI, 1, 0.1, 10); // create projection matrix
+    mat4.perspective(pMatrix, 0.5 * Math.PI, 2, 0.1, 10); // create projection matrix
     mat4.lookAt(vMatrix, camera.eye, camera.center, camera.up); // create view matrix
     mat4.multiply(pvMatrix, pvMatrix, pMatrix); // projection
     mat4.multiply(pvMatrix, pvMatrix, vMatrix); // projection * view
@@ -871,14 +871,14 @@ function updateSnakes(dt) {
 
     // update scores
     if (update) {
-        ctx.clearRect(0, 0, 512, 512);
+        ctx.clearRect(0, 0, 1400, 700);
         ctx.textAlign = "right";
         ctx.fillStyle = "blue";
-        ctx.fillText("P1 Blue: " + playerSnake.score, 132, 30);
+        ctx.fillText("P1 Blue: " + playerSnake.score, 200, 36);
 
         ctx.textAlign = "left";
         ctx.fillStyle = "gray";
-        ctx.fillText("P2 Gray: " + autoSnake.score, 375, 500);
+        ctx.fillText("P2 Gray: " + autoSnake.score, 1200, 680);
     }
 }
 

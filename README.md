@@ -11,8 +11,8 @@ The source code for this game is licensed under the [MIT License](https://mit-li
 
 ## Gameplay
 
-### Player Snake
-The player controls the green snake by using the arrow keys.
+### Basic Controls
+First, make sure you can view the entire game screen.  You can use **zoom** (or scaling) to adjust the game screen to your viewport.  As the primary player, you can control the blue snake by using the arrow keys.
 
 ### Two-Player Mode
 This program supports two-player mode.  The second player can take control of the AI snake (gray snake) at any time by using the WASD keys.  Until then, and after the player is killed and the snake respawns, the snake is controlled by the AI system.
