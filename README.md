@@ -1,6 +1,5 @@
 # Snake 3D
 
-## Description
 A simple 3D snake game available [here](https://gagarwa.github.io/Snake3D/), where you can use the arrow keys to move your snake. Designed and built for a graphics course at NC State University.
 
 ### Browser Support - Firefox
